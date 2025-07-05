@@ -1,27 +1,41 @@
 from functools import wraps
-from traceback import print_exc, format_exc
-from typing import Any, Callable, Optional, Union, List
-from botasaurus.decorators_common import evaluate_proxy, print_running, write_output, IS_PRODUCTION, AsyncQueueResult, AsyncResult,  run_parallel, save_error_logs
-from .utils import is_errors_instance, NotFoundException
-from .list_utils import flatten
-from .dontcache import is_dont_cache
+from traceback import format_exc, print_exc
+from typing import Any, Callable, List, Optional, Union
+
 from botasaurus_driver.driver import Driver
-from pathlib import Path
+
+from botasaurus.decorators_common import (
+    IS_PRODUCTION,
+    AsyncQueueResult,
+    AsyncResult,
+    evaluate_proxy,
+    print_running,
+    run_parallel,
+    save_error_logs,
+    write_output,
+)
+
+from .dontcache import is_dont_cache
+from .list_utils import flatten
+from .utils import NotFoundException, is_errors_instance
+
 
 def close_driver(driver: Driver):
-            try:
-                driver.close()
-            except Exception as e:
-                raise
+    try:
+        driver.close()
+    except Exception:
+        raise
+
 
 def close_driver_pool(pool: list):
-            if len(pool) == 1:
-                close_driver(pool[0])
-                while pool:
-                    pool.pop()
-            elif len(pool) > 0:
-                while pool:
-                    close_driver(pool.pop())
+    if len(pool) == 1:
+        close_driver(pool[0])
+        while pool:
+            pool.pop()
+    elif len(pool) > 0:
+        while pool:
+            close_driver(pool.pop())
+
 
 def browser(
     _func: Optional[Callable] = None,
@@ -29,7 +43,7 @@ def browser(
     parallel: Optional[Union[Callable[[Any], int], int]] = None,
     data: Optional[Union[Callable[[], Any], Any]] = None,
     metadata: Optional[Any] = None,
-    cache: Union[bool, str] = False,  
+    cache: Union[bool, str] = False,
     block_images: bool = False,
     block_images_and_css: bool = False,
     window_size: Optional[Union[Callable[[Any], str], str]] = None,
@@ -46,7 +60,7 @@ def browser(
     async_queue: bool = False,
     run_async: bool = False,
     profile: Optional[Union[Callable[[Any], str], str]] = None,
-    proxy: Optional[Union[Callable[[Any], str], str]] = None,
+    proxy: Optional[Union[Callable[[Any, int, Exception], str], str | None]] = None,
     user_agent: Optional[Union[Callable[[Any], str], str]] = None,
     reuse_driver: bool = False,
     output: Optional[Union[str, Callable]] = "default",
@@ -59,33 +73,66 @@ def browser(
     create_driver: Optional[Callable] = None,
     host: Optional[str] = None,
     port: Optional[int] = None,
-    browser_executable_path: Optional[str] = None
+    browser_executable_path: Optional[str] = None,
 ) -> Callable:
     def decorator_browser(func: Callable) -> Callable:
-        if not hasattr(func, '_scraper_type'):
+        if not hasattr(func, "_scraper_type"):
             func._scraper_type = "browser"
-
-        url = None
 
         @wraps(func)
         def wrapper_browser(*args, **kwargs) -> Any:
             print_running()
 
-            nonlocal parallel, data, cache, block_images_and_css, block_images, window_size, metadata, add_arguments, extensions, tiny_profile, wait_for_complete_page_load, lang, headless, beep, close_on_crash, async_queue, run_async, profile, proxy, user_agent, reuse_driver, raise_exception, must_raise_exceptions, output, output_formats, max_retry, retry_wait, create_driver, create_error_logs, enable_xvfb_virtual_display, host, port, remove_default_browser_check_argument
-            browser_executable_path = browser_executable_path if browser_executable_path and Path(browser_executable_path).is_file() else None
-                
-            
+            nonlocal \
+                parallel, \
+                data, \
+                cache, \
+                block_images_and_css, \
+                block_images, \
+                window_size, \
+                metadata, \
+                add_arguments, \
+                extensions, \
+                tiny_profile, \
+                wait_for_complete_page_load, \
+                lang, \
+                headless, \
+                beep, \
+                close_on_crash, \
+                async_queue, \
+                run_async, \
+                profile, \
+                proxy, \
+                user_agent, \
+                reuse_driver, \
+                raise_exception, \
+                must_raise_exceptions, \
+                output, \
+                output_formats, \
+                max_retry, \
+                retry_wait, \
+                create_driver, \
+                create_error_logs, \
+                enable_xvfb_virtual_display, \
+                host, \
+                port, \
+                remove_default_browser_check_argument
+
             parallel = kwargs.get("parallel", parallel)
             data = kwargs.get("data", data)
             cache = kwargs.get("cache", cache)
             block_images = kwargs.get("block_images", block_images)
-            block_images_and_css = kwargs.get("block_images_and_css", block_images_and_css)
+            block_images_and_css = kwargs.get(
+                "block_images_and_css", block_images_and_css
+            )
             add_arguments = kwargs.get("add_arguments", add_arguments)
             extensions = kwargs.get("extensions", extensions)
             window_size = kwargs.get("window_size", window_size)
             metadata = kwargs.get("metadata", metadata)
             tiny_profile = kwargs.get("tiny_profile", tiny_profile)
-            wait_for_complete_page_load = kwargs.get("wait_for_complete_page_load", wait_for_complete_page_load)
+            wait_for_complete_page_load = kwargs.get(
+                "wait_for_complete_page_load", wait_for_complete_page_load
+            )
             lang = kwargs.get("lang", lang)
             headless = kwargs.get("headless", headless)
             beep = kwargs.get("beep", beep)
@@ -106,36 +153,52 @@ def browser(
             create_error_logs = kwargs.get("create_error_logs", create_error_logs)
             raise_exception = kwargs.get("raise_exception", raise_exception)
             create_driver = kwargs.get("create_driver", create_driver)
-            enable_xvfb_virtual_display = kwargs.get("enable_xvfb_virtual_display", enable_xvfb_virtual_display) 
-            host = kwargs.get("host", host) 
-            port = kwargs.get("port", port) 
-            remove_default_browser_check_argument = kwargs.get("remove_default_browser_check_argument", remove_default_browser_check_argument)
+            enable_xvfb_virtual_display = kwargs.get(
+                "enable_xvfb_virtual_display", enable_xvfb_virtual_display
+            )
+            host = kwargs.get("host", host)
+            port = kwargs.get("port", port)
+            remove_default_browser_check_argument = kwargs.get(
+                "remove_default_browser_check_argument",
+                remove_default_browser_check_argument,
+            )
 
             fn_name = func.__name__
+            last_error: Exception = None
 
             if cache:
-                from .cache import CacheMissException,_get,_has,_get_cache_path,_create_cache_directory_if_not_exists, _put,_remove
+                from .cache import (
+                    CacheMissException,
+                    _create_cache_directory_if_not_exists,
+                    _get,
+                    _get_cache_path,
+                    _has,
+                    _put,
+                    _remove,
+                )
 
                 _create_cache_directory_if_not_exists(func)
             if isinstance(proxy, list):
-                from itertools import cycle       
-                cycled_proxy = cycle(proxy)         
+                from itertools import cycle
+
+                cycled_proxy = cycle(proxy)
             else:
                 cycled_proxy = None
 
             _driver_pool = wrapper_browser._driver_pool if dont_close_driver else []
 
             def run_task(data, retry_attempt, retry_driver=None) -> Any:
+                nonlocal last_error
+
                 if cache is True:
                     path = _get_cache_path(func, data)
                     if _has(path):
                         try:
-                          return _get(path)
+                            return _get(path)
                         except CacheMissException:
-                          pass
-                elif cache == 'REFRESH' :
+                            pass
+                elif cache == "REFRESH":
                     path = _get_cache_path(func, data)
-                    
 
                 evaluated_window_size = (
                     window_size(data) if callable(window_size) else window_size
@@ -146,11 +209,17 @@ def browser(
                 if cycled_proxy:
                     evaluated_proxy = next(cycled_proxy)
                 else:
-                    evaluated_proxy = evaluate_proxy(proxy(data) if callable(proxy) else proxy)
+                    evaluated_proxy = evaluate_proxy(
+                        proxy(data, retry_attempt, last_error)
+                        if callable(proxy)
+                        else proxy
+                    )
                 evaluated_profile = profile(data) if callable(profile) else profile
                 evaluated_lang = lang(data) if callable(lang) else lang
                 evaluated_headless = headless(data) if callable(headless) else headless
-                evaluated_extensions = extensions(data) if callable(extensions) else extensions
+                evaluated_extensions = (
+                    extensions(data) if callable(extensions) else extensions
+                )
 
                 if evaluated_profile is not None:
                     evaluated_profile = str(evaluated_profile)
@@ -160,9 +229,11 @@ def browser(
                     driver = _driver_pool.pop()
                 else:
                     if callable(add_arguments):
-                        args  = add_arguments(data)
+                        args = add_arguments(data)
                         if not isinstance(args, list):
-                            raise Exception("add_arguments must return a list of arguments")
+                            raise Exception(
+                                "add_arguments must return a list of arguments"
+                            )
                     else:
                         args = add_arguments
 
@@ -184,17 +255,16 @@ def browser(
                         host=host,
                         port=port,
                         remove_default_browser_check_argument=remove_default_browser_check_argument,
-                        browser_executable_path = browser_executable_path
                     )
 
                 result = None
                 try:
                     if max_retry is not None:
-                            driver.config.is_last_retry = not (
-                                (max_retry) > (retry_attempt)
-                            )
-                            driver.config.retry_attempt = retry_attempt
-                            driver.config.is_retry = retry_attempt != 0
+                        driver.config.is_last_retry = not (
+                            (max_retry) > (retry_attempt)
+                        )
+                        driver.config.retry_attempt = retry_attempt
+                        driver.config.is_retry = retry_attempt != 0
                     # if evaluated_profile is not None:
                     if "metadata" in kwargs or metadata is not None:
                         result = func(driver, data, metadata)
@@ -206,7 +276,7 @@ def browser(
                     else:
                         close_driver(driver)
 
-                    if cache is True or cache == 'REFRESH' :
+                    if cache is True or cache == "REFRESH":
                         if is_dont_cache(result):
                             _remove(path)
                         else:
@@ -241,8 +311,10 @@ def browser(
                         close_driver(driver)
                         if retry_wait:
                             from time import sleep
+
                             print("Waiting for " + str(retry_wait))
                             sleep(retry_wait)
+                        last_error = error
                         return run_task(data, retry_attempt + 1)
 
                     if not raise_exception:
@@ -251,14 +323,16 @@ def browser(
                     print("Task failed for input:", data)
                     if create_error_logs:
                         save_error_logs(format_exc(), driver)
-                    
+
                     if not close_on_crash:
                         if not IS_PRODUCTION:
                             if headless:
                                 driver.open_in_devtools()
                             if raise_exception:
                                 print_exc()
-                            driver.prompt("We've paused the browser to help you debug. Press 'Enter' to close.")
+                            driver.prompt(
+                                "We've paused the browser to help you debug. Press 'Enter' to close."
+                            )
 
                     # if reuse_driver:
                     #     driver.is_new = False
@@ -308,7 +382,7 @@ def browser(
 
                 if callable(parallel):
                     print(f"Running {n} Browsers in Parallel")
-                
+
                 result = run_parallel(run, used_data, n, True)
 
             if not dont_close_driver:
@@ -342,6 +416,7 @@ def browser(
             @wraps(func)
             def async_wrapper(*args, **kwargs):
                 from threading import Thread
+
                 def thread_target():
                     result = wrapper_browser(*args, **kwargs)
                     async_result.set_result(result)
@@ -360,8 +435,11 @@ def browser(
             def async_wrapper(*args, **wrapper_kwargs):
                 from queue import Queue
                 from threading import Thread
+
                 if args:
-                  raise ValueError('When using "async_queue", data must be passed via ".put".')
+                    raise ValueError(
+                        'When using "async_queue", data must be passed via ".put".'
+                    )
                 task_queue = Queue()
                 result_list = []
                 orginal_data = []
