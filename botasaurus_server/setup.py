@@ -9,7 +9,11 @@ install_requires = [
     "bottle",
     "kubernetes",
     "xlsxwriter",
-    "sqlalchemy"
+    "sqlalchemy",
+    "fastapi",
+    "uvicorn",
+    "python-dotenv",
+    "asyncpg",
 ]
 
 extras_require = {}
@@ -20,7 +24,7 @@ def get_description():
         with open("README.md", encoding="utf-8") as readme_file:
             long_description = readme_file.read()
         return long_description
-    except:
+    except Exception:
         return None
 
 

@@ -257,7 +257,6 @@ def browser(
                         remove_default_browser_check_argument=remove_default_browser_check_argument,
                     )
 
-                result = None
                 try:
                     if max_retry is not None:
                         driver.config.is_last_retry = not (
@@ -360,9 +359,7 @@ def browser(
                 used_data = [used_data]
 
             result = []
-            has_number_of_workers = number_of_workers is not None and not (
-                number_of_workers == False
-            )
+            has_number_of_workers = number_of_workers is not None
 
             if not has_number_of_workers or number_of_workers <= 1:
                 n = 1

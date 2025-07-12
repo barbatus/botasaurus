@@ -1,7 +1,8 @@
-from sqlalchemy import Column, Integer, String, DateTime, JSON, Boolean, ForeignKey
+from datetime import datetime
+
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
-from datetime import datetime, timezone
 
 from .task_results import TaskResults
 
@@ -15,10 +16,11 @@ class TaskStatus:
     FAILED = "failed"
     ABORTED = "aborted"
 
+
 def remove_duplicates_by_key(dict_list, key):
     """
     Removes duplicates from a list of dictionaries based on a specified key.
-    
+
     :param dict_list: List of dictionaries from which duplicates will be removed.
     :param key: The key based on which duplicates are identified and removed.
     :return: A list of dictionaries with duplicates removed.
@@ -30,17 +32,14 @@ def remove_duplicates_by_key(dict_list, key):
             if d[key] not in seen:
                 seen.add(d[key])
                 new_dict_list.append(d)
-        else: 
+        else:
             new_dict_list.append(d)
     return new_dict_list
 
+
 def calculate_duration(obj):
     if obj.started_at:
-        end_time = (
-            obj.finished_at
-            if obj.finished_at
-            else datetime.now(timezone.utc).replace(tzinfo=None)
-        )
+        end_time = obj.finished_at if obj.finished_at else datetime.now()
         duration = (end_time - obj.started_at).total_seconds()
 
         if duration == 0:
@@ -59,6 +58,7 @@ def isoformat(obj):
 
 def create_task_name(task_name, task_id):
     return task_name if task_name is not None else f"Task {task_id}"
+
 
 def serialize_ui_output_task(obj, _):
     task_id = obj.id
@@ -84,14 +84,18 @@ def serialize_ui_display_task(obj):
 
 def serialize_task(obj, with_result):
     task_id = obj.id
-    status = obj.status    
+    status = obj.status
     if with_result:
         if status == TaskStatus.PENDING:
             result = {"result": None}
         elif status != TaskStatus.IN_PROGRESS or obj.is_all_task:
             # set in cache
             if not hasattr(obj, "result"):
-                result = {"result":  TaskResults.get_all_task(task_id) if obj.is_all_task else TaskResults.get_task(task_id)}
+                result = {
+                    "result": TaskResults.get_all_task(task_id)
+                    if obj.is_all_task
+                    else TaskResults.get_task(task_id)
+                }
             else:
                 result = {"result": obj.result}
         else:

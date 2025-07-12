@@ -1,13 +1,15 @@
-from .validation import OK_MESSAGE # imports all routes as well
-from .executor import executor
-from bottle import (
-    request,
-    post,
-)
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 
-@post("/k8s/success")
-def k8s_success():
-    json_data = request.json
+from .executor import executor
+from .routes_db_logic import OK_MESSAGE  # imports all routes as well
+
+router = APIRouter()
+
+
+@router.post("/k8s/success")
+async def k8s_success(request: Request):
+    json_data = await request.json()
 
     task_id = json_data["task_id"]
     task_type = json_data["task_type"]
@@ -16,15 +18,16 @@ def k8s_success():
     data = json_data["data"]
     node_name = json_data["node_name"]
 
-    executor.on_success(task_id, task_type, task_result, node_name,scraper_name, data)
+    executor.on_success(
+        task_id, task_type, task_result, node_name, scraper_name, data
+    )
 
-    return OK_MESSAGE
+    return JSONResponse(content=OK_MESSAGE)
 
 
-@post("/k8s/fail")
-def k8s_fail():
-
-    json_data = request.json
+@router.post("/k8s/fail")
+async def k8s_fail(request: Request):
+    json_data = await request.json()
     task_id = json_data["task_id"]
     task_type = json_data["task_type"]
     task_result = json_data["task_result"]
@@ -32,4 +35,4 @@ def k8s_fail():
 
     executor.on_failure(task_id, task_type, task_result, node_name)
 
-    return OK_MESSAGE
+    return JSONResponse(content=OK_MESSAGE)

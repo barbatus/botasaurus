@@ -1,14 +1,15 @@
 from datetime import datetime, timezone
 from time import sleep
+from typing import Any
 
 from casefy import kebabcase
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, or_, select
 
 from botasaurus_server.errors import JsonHTTPResponseWithMessage
 
 from .apply_pagination import apply_pagination
 from .convert_to_english import convert_unicode_dict_to_ascii_dict
-from .db_setup import Session
+from .db_setup import AsyncSessionMaker, Session
 from .download import download_results
 from .executor import executor
 from .filters import apply_filters
@@ -44,10 +45,10 @@ from .views import _apply_view_for_ui, find_view
 
 
 @retry_on_db_error
-def perform_create_all_task(
+async def perform_create_all_task(
     data, metadata, is_sync, scraper_name, scraper_type, all_task_sort_id
 ):
-    with Session() as session:
+    async with AsyncSessionMaker() as session:
         all_task = Task(
             status=TaskStatus.PENDING,
             scraper_name=scraper_name,
@@ -61,17 +62,17 @@ def perform_create_all_task(
             sort_id=all_task_sort_id,  # Set the sort_id for the all task
         )
         session.add(all_task)
-        session.commit()
+        await session.commit()
 
         all_task_id = all_task.id
         return serialize(all_task), all_task_id
 
 
 @retry_on_db_error
-def perform_create_tasks(tasks, cached_tasks=None):
-    with Session() as session:
+async def perform_create_tasks(tasks, cached_tasks=None) -> list[str]:
+    async with AsyncSessionMaker() as session:
         session.add_all(tasks)
-        session.commit()
+        await session.commit()
 
         if cached_tasks:
             file_list = [
@@ -152,9 +153,9 @@ def queryTasks(ets, with_results, page=None, per_page=None, serializer=serialize
 
 
 @retry_on_db_error
-def get_task_from_db(task_id):
-    with Session() as session:
-        task = TaskHelper.get_task(session, task_id)
+async def get_task_from_db(task_id):
+    async with AsyncSessionMaker() as session:
+        task = await TaskHelper.get_task(session, task_id)
         if task:
             return serialize(task)
         else:
@@ -201,29 +202,26 @@ def perform_is_task_updated(task_id):
 
 
 @retry_on_db_error
-def perform_get_task_results(task_id):
-    with Session() as session:
-        task = TaskHelper.get_task_with_entities(
+async def perform_get_task_results(task_id):
+    async with AsyncSessionMaker() as session:
+        tasks = await TaskHelper.get_tasks_with_entities(
             session,
-            task_id,
+            [task_id],
             [Task.scraper_name, Task.result_count, Task.is_all_task, Task.data],
         )
+        task = tasks[0] if tasks else None
         if not task:
             raise create_task_not_found_error(task_id)
 
-        scraper_name = task.scraper_name
-        task_data = task.data
-        is_all_task = task.is_all_task
-        result_count = task.result_count
-    return scraper_name, is_all_task, task_data, result_count
+    return task.scraper_name, task.is_all_task, task.data, task.result_count
 
 
 @retry_on_db_error
 def perform_download_task_results(task_id):
     with Session() as session:
-        task = TaskHelper.get_task_with_entities(
+        tasks = TaskHelper.get_tasks_with_entities(
             session,
-            task_id,
+            [task_id],
             [
                 Task.scraper_name,
                 Task.is_all_task,
@@ -232,32 +230,27 @@ def perform_download_task_results(task_id):
                 Task.task_name,
             ],
         )
+        task = tasks[0] if tasks else None
         if not task:
             raise create_task_not_found_error(task_id)
 
-        scraper_name = task.scraper_name
-        task_data = task.data
-        is_all_task = task.is_all_task
-        task_name = task.task_name
-        is_all_task = task.is_all_task
-
     return (
-        scraper_name,
+        task.scraper_name,
         (
             TaskResults.get_all_task(task_id)
-            if is_all_task
+            if task.is_all_task
             else TaskResults.get_task(task_id)
         ),
-        task_data,
-        is_all_task,
-        task_name,
+        task.data,
+        task.is_all_task,
+        task.task_name,
     )
 
 
 @retry_on_db_error
-def perform_get_ui_task_results(task_id):
-    with Session() as session:
-        tasks = TaskHelper.get_tasks_with_entities(
+async def perform_get_ui_task_results(task_id):
+    async with AsyncSessionMaker() as session:
+        tasks = await TaskHelper.get_tasks_with_entities(
             session,
             [task_id],
             [
@@ -283,34 +276,34 @@ def perform_get_ui_task_results(task_id):
 
 
 @retry_on_db_error
-def perform_patch_task(action, task_id):
-    with Session() as session:
-        task = (
-            session.query(
-                Task.id,
-                Task.is_all_task,
-                Task.parent_task_id,
-                Task.scraper_name,
-            )
-            .filter(Task.id == task_id)
-            .first()
-        )
+async def perform_patch_task(action, task_id):
+    async with AsyncSessionMaker() as session:
+        query = select(
+            Task.id,
+            Task.is_all_task,
+            Task.parent_task_id,
+            Task.scraper_name,
+        ).where(Task.id == task_id)
+        result = await session.execute(query)
+        task = result.first()
     if task:
         remove_duplicates_by = Server.get_remove_duplicates_by(task[-1])
         task = task[0:3]
         if action == "delete":
-            delete_task(*task, remove_duplicates_by)
+            await delete_task(*task, remove_duplicates_by)
         elif action == "abort":
-            abort_task(*task, remove_duplicates_by)
+            await abort_task(*task, remove_duplicates_by)
+
+    await session.commit()
 
 
 OK_MESSAGE = {"message": "OK"}
 
 
-def create_async_task(validated_data):
+async def create_async_task(validated_data):
     scraper_name, data, metadata = validated_data
 
-    tasks_with_all_task, tasks, split_task = create_tasks(
+    tasks_with_all_task, tasks, split_task = await create_tasks(
         Server.get_scraper(scraper_name), data, metadata, False
     )
 
@@ -320,21 +313,21 @@ def create_async_task(validated_data):
         return tasks[0]
 
 
-def execute_async_task(json_data):
-    result = create_async_task(validate_task_request(json_data))
+async def execute_async_task(json_data):
+    result = await create_async_task(validate_task_request(json_data))
     return result
 
 
-def execute_async_tasks(json_data):
+async def execute_async_tasks(json_data):
     validated_data_items = [validate_task_request(item) for item in json_data]
     result = [
-        create_async_task(validated_data_item)
+        await create_async_task(validated_data_item)
         for validated_data_item in validated_data_items
     ]
     return result
 
 
-def create_tasks(scraper, data, metadata, is_sync):
+async def create_tasks(scraper, data, metadata, is_sync):
     create_all_tasks = scraper["create_all_task"]
     split_task = scraper["split_task"]
     scraper_name = scraper["scraper_name"]
@@ -342,7 +335,7 @@ def create_tasks(scraper, data, metadata, is_sync):
     get_task_name = scraper["get_task_name"]
 
     # create enough space
-    all_task_sort_id = int(datetime.now(timezone.utc).timestamp()) * 10000
+    all_task_sort_id = int(datetime.now(timezone.utc).timestamp())
     all_task = None
     all_task_id = None
 
@@ -353,7 +346,7 @@ def create_tasks(scraper, data, metadata, is_sync):
     else:
         tasks_data = [data]
     if create_all_tasks:
-        all_task, all_task_id = perform_create_all_task(
+        all_task, all_task_id = await perform_create_all_task(
             data, metadata, is_sync, scraper_name, scraper_type, all_task_sort_id
         )
 
@@ -372,9 +365,11 @@ def create_tasks(scraper, data, metadata, is_sync):
             sort_id=sort_id,  # Set the sort_id for the child task
         )
 
-    def create_cached_tasks(task_datas):
-        ls = []
-        cache_keys = []
+    def create_cached_tasks(
+        task_datas: list[dict[str, Any]],
+    ) -> tuple[list[Task], list[Task], int]:
+        ls: dict[str, Any] = []
+        cache_keys: list[str] = []
 
         for t in task_datas:
             key = create_cache_key(scraper_name, t)
@@ -383,10 +378,8 @@ def create_tasks(scraper, data, metadata, is_sync):
 
         cache_map = create_cache_details(cache_keys)
 
-        tasks = []
-
         def create_cached_task(task_data, cached_result, sort_id):
-            now_time = datetime.now(timezone.utc)
+            now_time = datetime.now()
             task_name = get_task_name(task_data) if get_task_name else None
             return Task(
                 status=TaskStatus.COMPLETED,
@@ -404,7 +397,8 @@ def create_tasks(scraper, data, metadata, is_sync):
                 sort_id=sort_id,  # Set the sort_id for the cached task
             )
 
-        cached_tasks = []
+        tasks: list[Task] = []
+        cached_tasks: list[Task] = []
         for idx, item in enumerate(ls):
             cached_result = cache_map.get(item["key"])
             if cached_result:
@@ -417,28 +411,25 @@ def create_tasks(scraper, data, metadata, is_sync):
                 sort_id = all_task_sort_id - (idx + 1)
                 tasks.append(createTask(item["task_data"], sort_id))
 
-        return tasks, cached_tasks, len(cached_tasks)
+        return tasks, cached_tasks
 
     if Server.cache:
-        tasks, cached_tasks, cached_tasks_len = create_cached_tasks(tasks_data)
-        tasks = perform_create_tasks(tasks, cached_tasks)
+        tasks, cached_tasks = create_cached_tasks(tasks_data)
+        tasks = await perform_create_tasks(tasks, cached_tasks)
     else:
         tasks = []
         for idx, task_data in enumerate(tasks_data):
             # Assign sort_id for the non-cached task
             sort_id = all_task_sort_id - (idx + 1)
             tasks.append(createTask(task_data, sort_id))
-        cached_tasks_len = 0
-
-        tasks = perform_create_tasks(tasks)
+        tasks = await perform_create_tasks(tasks)
 
     # here write results with help of cachemap
-    if cached_tasks_len > 0:
-        tasklen = len(tasks)
-        if tasklen == cached_tasks_len:
+    if cached_tasks:
+        if len(tasks) == len(cached_tasks):
             if all_task_id:
                 first_started_at = cached_tasks[0].started_at
-                with Session() as session:
+                async with AsyncSessionMaker() as session:
                     TaskHelper.update_task(
                         session,
                         all_task_id,
@@ -447,16 +438,15 @@ def create_tasks(scraper, data, metadata, is_sync):
                             "finished_at": first_started_at,
                         },
                     )
-                    session.commit()
+                    await session.commit()
                 all_task["started_at"] = isoformat(first_started_at)
                 all_task["finished_at"] = isoformat(first_started_at)
-            print("All Tasks Results are Returned from cache")
+            print("All tasks results are from cache")
         else:
-            print(
-                f"{cached_tasks_len} out of {tasklen} Results are Returned from cache"
-            )
+            print(f"{len(cached_tasks)} out of {len(tasks)} results are from cache")
+
         if all_task_id:
-            perform_complete_task(
+            await perform_complete_task(
                 all_task_id, Server.get_remove_duplicates_by(scraper_name)
             )
 
@@ -497,14 +487,14 @@ def create_cache_details(cache_keys):
 
 
 @retry_on_db_error
-def refetch_tasks(item):
-    with Session() as session:
+async def refetch_tasks(item):
+    async with AsyncSessionMaker() as session:
         if isinstance(item, list):
             ids = [i["id"] for i in item]
-            tasks = TaskHelper.get_tasks_by_ids(session, ids)
+            tasks = await TaskHelper.get_tasks_by_ids(session, ids)
             return serialize(tasks)
         else:
-            task = TaskHelper.get_task(session, item["id"])
+            task = await TaskHelper.get_task(session, item["id"])
             return serialize(task)
 
 
@@ -691,8 +681,8 @@ def clean_results(
     return results
 
 
-def execute_get_task_results(task_id, json_data):
-    scraper_name, is_all_task, task_data, result_count = perform_get_task_results(
+async def execute_get_task_results(task_id, json_data):
+    scraper_name, is_all_task, task_data, result_count = await perform_get_task_results(
         task_id
     )
     validate_scraper_name(scraper_name)
@@ -770,114 +760,118 @@ def execute_task_results(task_id, json_data):
     return download_results(results, fmt, filename)
 
 
-def delete_task(task_id, is_all_task, parent_id, remove_duplicates_by):
-    fn = None
-    with Session() as session:
+async def delete_task(task_id, is_all_task, parent_id, remove_duplicates_by):
+    async with AsyncSessionMaker() as session:
         if is_all_task:
-            TaskHelper.delete_child_tasks(session, task_id)
+            await TaskHelper.delete_child_tasks(session, task_id)
+            await session.commit()
         else:
             if parent_id:
-                all_children_count = TaskHelper.get_all_children_count(
+                all_children_count = await TaskHelper.get_all_children_count(
                     session, parent_id, task_id
                 )
 
                 if all_children_count == 0:
-                    TaskHelper.delete_task(session, parent_id, True)
+                    await TaskHelper.delete_task(session, parent_id, True)
                 else:
                     has_executing_tasks = (
-                        TaskHelper.get_pending_or_executing_child_count(
+                        await TaskHelper.get_pending_or_executing_child_count(
                             session, parent_id, task_id
                         )
                     )
 
                     if not has_executing_tasks:
-                        aborted_children_count = TaskHelper.get_aborted_children_count(
-                            session, parent_id, task_id
+                        aborted_children_count = (
+                            await TaskHelper.get_aborted_children_count(
+                                session, parent_id, task_id
+                            )
                         )
 
                         if aborted_children_count == all_children_count:
                             TaskHelper.abort_task(session, parent_id)
                         else:
                             failed_children_count = (
-                                TaskHelper.get_failed_children_count(
+                                await TaskHelper.get_failed_children_count(
                                     session, parent_id, task_id
                                 )
                             )
                             if failed_children_count:
-                                fn = lambda: TaskHelper.collect_and_save_all_task(
+                                await TaskHelper.collect_and_save_all_task(
+                                    session,
                                     parent_id,
                                     task_id,
                                     remove_duplicates_by,
                                     TaskStatus.FAILED,
                                 )
                             else:
-                                fn = lambda: TaskHelper.collect_and_save_all_task(
+                                await TaskHelper.collect_and_save_all_task(
+                                    session,
                                     parent_id,
                                     task_id,
                                     remove_duplicates_by,
                                     TaskStatus.COMPLETED,
                                 )
-        session.commit()
-    if fn:
-        fn()
-    with Session() as session:
-        TaskHelper.delete_task(session, task_id, is_all_task)
-        session.commit()
+
+    async with AsyncSessionMaker() as session:
+        await TaskHelper.delete_task(session, task_id, is_all_task)
+        await session.commit()
 
 
-def abort_task(task_id, is_all_task, parent_id, remove_duplicates_by):
-    fn = None
-    with Session() as session:
+async def abort_task(task_id, is_all_task, parent_id, remove_duplicates_by):
+    async with AsyncSessionMaker() as session:
         if is_all_task:
-            TaskHelper.abort_child_tasks(session, task_id)
+            await TaskHelper.abort_child_tasks(session, task_id)
         else:
             if parent_id:
-                all_children_count = TaskHelper.get_all_children_count(
+                all_children_count = await TaskHelper.get_all_children_count(
                     session, parent_id, task_id
                 )
 
                 if all_children_count == 0:
-                    TaskHelper.abort_task(session, parent_id)
+                    await TaskHelper.abort_task(session, parent_id)
                 else:
                     has_executing_tasks = (
-                        TaskHelper.get_pending_or_executing_child_count(
+                        await TaskHelper.get_pending_or_executing_child_count(
                             session, parent_id, task_id
                         )
                     )
 
                     if not has_executing_tasks:
-                        aborted_children_count = TaskHelper.get_aborted_children_count(
-                            session, parent_id, task_id
+                        aborted_children_count = (
+                            await TaskHelper.get_aborted_children_count(
+                                session, parent_id, task_id
+                            )
                         )
 
                         if aborted_children_count == all_children_count:
-                            TaskHelper.abort_task(session, parent_id)
+                            await TaskHelper.abort_task(session, parent_id)
                         else:
                             failed_children_count = (
-                                TaskHelper.get_failed_children_count(
+                                await TaskHelper.get_failed_children_count(
                                     session, parent_id, task_id
                                 )
                             )
                             if failed_children_count:
-                                fn = lambda: TaskHelper.collect_and_save_all_task(
+                                await TaskHelper.collect_and_save_all_task(
+                                    session,
                                     parent_id,
                                     task_id,
                                     remove_duplicates_by,
                                     TaskStatus.FAILED,
                                 )
                             else:
-                                fn = lambda: TaskHelper.collect_and_save_all_task(
+                                await TaskHelper.collect_and_save_all_task(
+                                    session,
                                     parent_id,
                                     task_id,
                                     remove_duplicates_by,
                                     TaskStatus.COMPLETED,
                                 )
-        session.commit()
-    if fn:
-        fn()
-    with Session() as session:
-        TaskHelper.abort_task(session, task_id)
-        session.commit()
+        await session.commit()
+
+    async with AsyncSessionMaker() as session:
+        await TaskHelper.abort_task(session, task_id)
+        await session.commit()
 
 
 def execute_get_api_config():
@@ -988,7 +982,7 @@ def execute_get_ui_tasks(page):
     return queryTasks(output_ui_tasks_ets, False, page, 100, serialize_ui_output_task)
 
 
-def execute_patch_task(page, json_data):
+async def execute_patch_task(page, json_data):
     if not (is_valid_positive_integer(page)):
         raise JsonHTTPResponseWithMessage(
             "Invalid 'page' parameter. Must be a positive integer.", status=400
@@ -997,16 +991,20 @@ def execute_patch_task(page, json_data):
     action, task_ids = validate_ui_patch_task(json_data)
 
     for task_id in task_ids:
-        perform_patch_task(action, task_id)
+        await perform_patch_task(action, task_id)
 
     result = queryTasks(output_ui_tasks_ets, False, page, 100, serialize_ui_output_task)
     return result
 
 
-def execute_get_ui_task_results(task_id, json_data, query_params):
-    scraper_name, is_all_task, serialized_task, task_data, result_count = (
-        perform_get_ui_task_results(task_id)
-    )
+async def execute_get_ui_task_results(task_id, json_data, query_params):
+    (
+        scraper_name,
+        is_all_task,
+        serialized_task,
+        task_data,
+        result_count,
+    ) = await perform_get_ui_task_results(task_id)
     validate_scraper_name(scraper_name)
 
     filters, sort, view, page, per_page = validate_results_request(

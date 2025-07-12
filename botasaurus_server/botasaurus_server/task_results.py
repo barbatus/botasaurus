@@ -36,7 +36,7 @@ def _get_task(id):
     return _get(task_path)
 
 
-def create_cache_key(scraper_name, data):
+def create_cache_key(scraper_name: str, data: dict) -> str:
     return (
         scraper_name
         + "-"

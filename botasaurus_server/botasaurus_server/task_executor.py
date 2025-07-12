@@ -1,14 +1,16 @@
+import asyncio
 import time
 import traceback
-from datetime import datetime, timezone
-from threading import Lock, Thread
+from datetime import datetime
+from threading import Lock
+from typing import Any
 
-from sqlalchemy import and_
+from sqlalchemy import and_, delete, or_, select, update
 
 from botasaurus.dontcache import is_dont_cache
 
 from .cleaners import clean_data
-from .db_setup import Session
+from .db_setup import AsyncSessionMaker, Session
 from .models import Task, TaskStatus, remove_duplicates_by_key
 from .retry_on_db_error import retry_on_db_error
 from .scraper_type import ScraperType
@@ -18,35 +20,38 @@ from .task_results import TaskResults
 
 
 class TaskExecutor:
-    def load(self):
-        self.current_capacity = {"browser": 0, "request": 0, "task": 0}
-        self.lock = Lock()
+    current_capacity = {"browser": 0, "request": 0, "task": 0}
+    lock = Lock()
 
-    def start(self):
-        self.fix_in_progress_tasks()
-        Thread(target=self.task_worker, daemon=True).start()
+    async def start(self):
+        await self.fix_in_progress_tasks()
+        await self.task_worker()
 
     @retry_on_db_error
-    def fix_in_progress_tasks(self):
-        with Session() as session:
-            # Delete tasks with is_sync=True and status as either pending or in progress
-            session.query(Task).filter(
-                and_(
-                    Task.is_sync == True,
-                    Task.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS]),
-                )
-            ).delete()
-            # Update in progress tasks to pending
-            session.query(Task).filter(Task.status == TaskStatus.IN_PROGRESS).update(
-                {
-                    "status": TaskStatus.PENDING,
-                    "started_at": None,
-                    "finished_at": None,
-                },
+    async def fix_in_progress_tasks(self):
+        async with AsyncSessionMaker() as session:
+            await session.execute(
+                delete(Task).where(
+                    Task.is_sync.is_(True),
+                    Task.status.in_(
+                        (TaskStatus.PENDING, TaskStatus.IN_PROGRESS),
+                    ),
+                ),
             )
-            session.commit()
 
-    def task_worker(self):
+            await session.execute(
+                update(Task)
+                .where(Task.status == TaskStatus.IN_PROGRESS)
+                .values(
+                    status=TaskStatus.PENDING,
+                    started_at=None,
+                    finished_at=None,
+                ),
+            )
+
+            await session.commit()
+
+    async def task_worker(self):
         browser_scrapers = len(Server.get_browser_scrapers()) > 0
         request_scrapers = len(Server.get_request_scrapers()) > 0
         task_scrapers = len(Server.get_task_scrapers()) > 0
@@ -54,27 +59,27 @@ class TaskExecutor:
         while True:
             try:
                 if browser_scrapers:
-                    self.process_tasks(ScraperType.BROWSER)
+                    await self.process_tasks(ScraperType.BROWSER)
 
                 if request_scrapers:
-                    self.process_tasks(ScraperType.REQUEST)
+                    await self.process_tasks(ScraperType.REQUEST)
 
                 if task_scrapers:
-                    self.process_tasks(ScraperType.TASK)
-            except:
+                    await self.process_tasks(ScraperType.TASK)
+            except Exception:
                 traceback.print_exc()
 
             time.sleep(1)
 
-    def process_tasks(self, scraper_type):
+    async def process_tasks(self, scraper_type):
         rate_limit = self.get_max_running_count(scraper_type)
         current_count = self.get_current_running_count(scraper_type)
         if current_count < rate_limit:
-            self.execute_pending_tasks(
+            await self.execute_pending_tasks(
                 and_(
                     Task.status == TaskStatus.PENDING,
                     Task.scraper_type == scraper_type,
-                    Task.is_all_task == False,
+                    Task.is_all_task.is_(False),
                 ),
                 current_count,
                 rate_limit,
@@ -88,69 +93,89 @@ class TaskExecutor:
         return self.current_capacity[scraper_type]
 
     @retry_on_db_error
-    def execute_pending_tasks(self, task_filter, current, limit, scraper_type):
-        with Session() as session:
-            query = (
-                session.query(Task)
-                .filter(task_filter)
+    async def execute_pending_tasks(self, task_filter, current, limit, scraper_type):
+        tasks_json: list[dict[str, Any]] = []
+        async with AsyncSessionMaker() as session:
+            stmt = (
+                select(Task)
+                .where(task_filter)
                 .order_by(
-                    Task.sort_id.desc(), Task.is_sync.desc()
-                )  # Prioritize syncronous tasks
+                    Task.sort_id.desc(),
+                    Task.is_sync.desc(),
+                )
             )
             if limit is not None:
-                remaining = limit - current
-                query = query.limit(remaining)
+                stmt = stmt.limit(max(limit - current, 0))
 
-            tasks = query.all()
+            tasks: list[Task] = (await session.scalars(stmt)).all()
 
-            if tasks:
-                for task in tasks:
-                    valid_scraper_names = Server.get_scrapers_names()
-                    valid_scraper_names_set = set(valid_scraper_names)
+            if not tasks:
+                return
 
-                    if task.scraper_name not in valid_scraper_names_set:
-                        valid_names_string = ", ".join(valid_scraper_names)
-                        raise Exception(
-                            get_scraper_error_message(
-                                valid_scraper_names,
-                                task.scraper_name,
-                                valid_names_string,
-                            )
+            for task in tasks:
+                valid_scraper_names = Server.get_scrapers_names()
+                valid_scraper_names_set = set(valid_scraper_names)
+
+                if task.scraper_name not in valid_scraper_names_set:
+                    valid_names_string = ", ".join(valid_scraper_names)
+                    raise Exception(
+                        get_scraper_error_message(
+                            valid_scraper_names,
+                            task.scraper_name,
+                            valid_names_string,
                         )
-
-                # Collect task and parent IDs
-                task_ids = [task.id for task in tasks]
-                parent_ids = {
-                    task.parent_task_id for task in tasks if task.parent_task_id
-                }
-
-                # Bulk update the status of tasks
-                session.query(Task).filter(Task.id.in_(task_ids)).update(
-                    {
-                        "status": TaskStatus.IN_PROGRESS,
-                        "started_at": datetime.now(timezone.utc),
-                    }
-                )
-
-                # Bulk update the status of parent tasks
-                if parent_ids:
-                    session.query(Task).filter(
-                        Task.id.in_(list(parent_ids)), Task.started_at.is_(None)
-                    ).update(
-                        {
-                            "status": TaskStatus.IN_PROGRESS,
-                            "started_at": datetime.now(timezone.utc),
-                        }
                     )
 
-                session.commit()
+            # Collect task and parent IDs
+            task_ids = [task.id for task in tasks]
+            parent_ids = list(
+                {task.parent_task_id for task in tasks if task.parent_task_id}
+            )
 
-                # Start tasks after commit
-                for task in tasks:
-                    self.run_task_and_update_state(scraper_type, task.to_json())
+            # Bulk update the status of tasks
+            await session.execute(
+                update(Task)
+                .where(
+                    or_(
+                        Task.id.in_(task_ids),
+                        and_(Task.id.in_(parent_ids), Task.started_at.is_(None)),
+                    ),
+                )
+                .values(
+                    {
+                        "status": TaskStatus.IN_PROGRESS,
+                        "started_at": datetime.now(),
+                    }
+                )
+            )
 
-    def run_task_and_update_state(self, scraper_type, task_json):
-        Thread(target=self.run_task, args=(task_json,), daemon=True).start()
+            tasks_json = []
+            for task in tasks:
+                task_dict = {
+                    "id": task.id,
+                    "status": task.status,
+                    "scraper_name": task.scraper_name,
+                    "scraper_type": task.scraper_type,
+                    "is_all_task": task.is_all_task,
+                    "is_sync": task.is_sync,
+                    "parent_task_id": task.parent_task_id,
+                    "data": task.data,
+                    "metadata": task.meta_data,
+                }
+                tasks_json.append(task_dict)
+
+            await session.commit()
+
+        for task_json in tasks_json:
+            await self.run_task_and_update_state(
+                scraper_type,
+                task_json,
+            )
+
+    async def run_task_and_update_state(self, scraper_type, task_json):
+        await self.run_task(task_json)
+
+        # Update capacity bookkeeping.
         self.increment_capacity(scraper_type)
 
     def increment_capacity(self, scraper_type):
@@ -163,7 +188,7 @@ class TaskExecutor:
         # with self.lock:
         self.current_capacity[scraper_type] -= 1
 
-    def run_task(self, task):
+    async def run_task(self, task):
         scraper_type = task["scraper_type"]
         task_id = task["id"]
         scraper_name = task["scraper_name"]
@@ -175,7 +200,10 @@ class TaskExecutor:
         exception_log = None
         try:
             try:
-                result = fn(
+                # Run the (potentially blocking) scraping function in a separate
+                # thread so it does not block the event loop.
+                result = await asyncio.to_thread(
+                    fn,
                     task_data,
                     **metadata,
                     parallel=None,
@@ -203,19 +231,27 @@ class TaskExecutor:
                     result = remove_duplicates_by_key(result, remove_duplicates_by)
 
                 if is_result_dont_cached:
-                    self.mark_task_as_success(
-                        task_id, result, False, scraper_name, task_data
+                    await self.mark_task_as_success(
+                        task_id,
+                        result,
+                        False,
+                        scraper_name,
+                        task_data,
                     )
                 else:
-                    self.mark_task_as_success(
-                        task_id, result, Server.cache, scraper_name, task_data
+                    await self.mark_task_as_success(
+                        task_id,
+                        result,
+                        Server.cache,
+                        scraper_name,
+                        task_data,
                     )
                 self.decrement_capcity(scraper_type)
-            except:
+            except Exception:
                 self.decrement_capcity(scraper_type)
                 exception_log = traceback.format_exc()
                 traceback.print_exc()
-                self.mark_task_as_failure(task_id, exception_log)
+                await self.mark_task_as_failure(task_id, exception_log)
             finally:
                 if parent_task_id:
                     if exception_log:
@@ -235,13 +271,16 @@ class TaskExecutor:
 
         if parent_id:
             self.complete_parent_task_if_possible(
-                parent_id, Server.get_remove_duplicates_by(scraper_name), result
+                parent_id,
+                Server.get_remove_duplicates_by(scraper_name),
+                result,
             )
 
-    def complete_parent_task_if_possible(self, parent_id, remove_duplicates_by, result):
-        fn = None
-        with Session() as session:
-            parent_task = TaskHelper.get_task(
+    async def complete_parent_task_if_possible(
+        self, parent_id, remove_duplicates_by, result
+    ):
+        async with AsyncSessionMaker() as session:
+            parent_task = await TaskHelper.get_task(
                 session,
                 parent_id,
                 [TaskStatus.PENDING, TaskStatus.IN_PROGRESS],
@@ -250,10 +289,10 @@ class TaskExecutor:
             # MAY BE DELETED SO CHECK
             if parent_task:
                 # is fast no worry
-                TaskHelper.update_parent_task_results(parent_id, result)
-                is_done = TaskHelper.are_all_child_task_done(session, parent_id)
+                await TaskHelper.update_parent_task_results(parent_id, result)
+                is_done = await TaskHelper.are_all_child_task_done(session, parent_id)
                 if is_done:
-                    failed_children_count = TaskHelper.get_failed_children_count(
+                    failed_children_count = await TaskHelper.get_failed_children_count(
                         session, parent_id
                     )
 
@@ -262,62 +301,68 @@ class TaskExecutor:
                         if failed_children_count
                         else TaskStatus.COMPLETED
                     )
-                    fn = lambda: TaskHelper.read_clean_save_task(
+                    await TaskHelper.read_clean_save_task(
                         parent_id, remove_duplicates_by, status
                     )
 
-        if fn:
-            fn()
-
-    def complete_as_much_all_task_as_possible(self, parent_id, remove_duplicates_by):
-        fn = None
-        with Session() as session:
-            is_done = TaskHelper.are_all_child_task_done(session, parent_id)
+    async def complete_as_much_all_task_as_possible(
+        self, parent_id, remove_duplicates_by
+    ):
+        async with AsyncSessionMaker() as session:
+            is_done = await TaskHelper.are_all_child_task_done(session, parent_id)
             if is_done:
-                failed_children_count = TaskHelper.get_failed_children_count(
+                failed_children_count = await TaskHelper.get_failed_children_count(
                     session, parent_id
                 )
                 status = (
                     TaskStatus.FAILED if failed_children_count else TaskStatus.COMPLETED
                 )
-                fn = lambda: TaskHelper.collect_and_save_all_task(
-                    parent_id, None, remove_duplicates_by, status
+                await TaskHelper.collect_and_save_all_task(
+                    session,
+                    parent_id,
+                    None,
+                    remove_duplicates_by,
+                    status,
                 )
             else:
-                fn = lambda: TaskHelper.collect_and_save_all_task(
-                    parent_id, None, remove_duplicates_by, TaskStatus.IN_PROGRESS
+                await TaskHelper.collect_and_save_all_task(
+                    session,
+                    parent_id,
+                    None,
+                    remove_duplicates_by,
+                    TaskStatus.IN_PROGRESS,
                 )
-        if fn:
-            fn()
 
     @retry_on_db_error
-    def mark_task_as_failure(self, task_id, exception_log):
+    async def mark_task_as_failure(self, task_id, exception_log):
         TaskResults.save_task(task_id, exception_log)
-        with Session() as session:
+        async with AsyncSessionMaker() as session:
             TaskHelper.update_task(
                 session,
                 task_id,
                 {
                     "status": TaskStatus.FAILED,
-                    "finished_at": datetime.now(timezone.utc),
+                    "finished_at": datetime.now(),
                 },
                 [TaskStatus.IN_PROGRESS],
             )
-            session.commit()
+            await session.commit()
 
     @retry_on_db_error
-    def mark_task_as_success(self, task_id, result, cache_task, scraper_name, data):
+    async def mark_task_as_success(
+        self, task_id, result, cache_task, scraper_name, data
+    ):
         TaskResults.save_task(task_id, result)
         if cache_task:
             TaskResults.save_cached_task(scraper_name, data, result)
-        with Session() as session:
-            update_result = TaskHelper.update_task(
+        async with AsyncSessionMaker() as session:
+            update_result = await TaskHelper.update_task(
                 session,
                 task_id,
                 {
                     "result_count": len(result),
                     "status": TaskStatus.COMPLETED,
-                    "finished_at": datetime.now(timezone.utc),
+                    "finished_at": datetime.now(),
                 },
                 [TaskStatus.IN_PROGRESS],
             )
@@ -325,4 +370,4 @@ class TaskExecutor:
                 # if the task is aborted in progress, there should be no results
                 TaskResults.delete_task(task_id)
 
-            session.commit()
+            await session.commit()

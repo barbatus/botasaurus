@@ -1,5 +1,6 @@
-import random
 import math
+import random
+
 import numpy as np
 import pytweening
 
@@ -69,8 +70,12 @@ class HumanizeMouseTrajectory:
                 "down_boundary must be less than or equal to upper_boundary"
             )
         try:
-            knotsX = np.random.choice(range(l_boundary, r_boundary) or l_boundary, size=knots_count)
-            knotsY = np.random.choice(range(d_boundary, u_boundary) or d_boundary, size=knots_count)
+            knotsX = np.random.choice(
+                range(l_boundary, r_boundary) or l_boundary, size=knots_count
+            )
+            knotsY = np.random.choice(
+                range(d_boundary, u_boundary) or d_boundary, size=knots_count
+            )
         except TypeError:
             knotsX = np.random.choice(
                 range(int(l_boundary), int(r_boundary)), size=knots_count

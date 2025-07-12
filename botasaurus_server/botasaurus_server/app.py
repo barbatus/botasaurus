@@ -1,24 +1,18 @@
-from bottle import run, BaseRequest
-from .env import is_in_kubernetes, is_worker, is_master
+import asyncio
 
-BaseRequest.MEMFILE_MAX = 100 * 1024 * 1024 # 100 MB Max Data Payload
+import uvicorn
 
-from . import task_routes
-if is_master:
-    from . import master_routes
-elif is_worker:
-    from . import worker_routes
-
+from .env import is_in_kubernetes
 from .executor import executor
+from .fastapi_app import app as fastapi_app
+
+
+@fastapi_app.on_event("startup")
+async def startup_event():
+    asyncio.create_task(executor.start())
+
 
 def run_backend():
-    executor.load()
-    executor.start()
+    host = "0.0.0.0" if is_in_kubernetes else "127.0.0.1"
 
-    host = '0.0.0.0' if is_in_kubernetes else '127.0.0.1'
-    debug = False
-    run(
-        host=host,
-        port=8000,
-        debug=debug
-    )
+    uvicorn.run(fastapi_app, host=host, port=8000, log_level="info")

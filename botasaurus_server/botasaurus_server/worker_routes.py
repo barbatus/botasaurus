@@ -1,17 +1,16 @@
+from typing import Dict
+
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
+
 from .executor import executor
-from bottle import (
-    request,
-    post,
-)
-OK_MESSAGE = {"message": "OK"}
+from .routes_db_logic import OK_MESSAGE
 
-@post("/k8s/run-worker-task")
-def k8s_run():
-    json_data = request.json
+router = APIRouter()
 
-    task = json_data["task"]
-    node_name = json_data["node_name"]
 
-    executor.run_worker_task(task, node_name)
-
-    return OK_MESSAGE
+@router.post("/k8s/run-worker-task")
+async def k8s_run_worker_task(request: Request) -> Dict[str, str]:
+    data = await request.json()
+    executor.run_worker_task(data["task"], data["node_name"])
+    return JSONResponse(content=OK_MESSAGE)

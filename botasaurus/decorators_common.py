@@ -1,17 +1,22 @@
 import os
 from shutil import rmtree
-from .env import IS_VM_OR_DOCKER
-from .env import IS_PRODUCTION as _IS_PRODUCTION
-from .utils import write_file
-
-from .formats import Formats
-
-from .output import fix_excel_filename, write_excel, write_json, write_csv, fix_csv_filename, fix_json_filename
 
 from .decorators_utils import (
     create_directory_if_not_exists,
 )
+from .env import IS_PRODUCTION as _IS_PRODUCTION
+from .env import IS_VM_OR_DOCKER
+from .formats import Formats
 from .list_utils import flatten
+from .output import (
+    fix_csv_filename,
+    fix_excel_filename,
+    fix_json_filename,
+    write_csv,
+    write_excel,
+    write_json,
+)
+from .utils import write_file
 
 
 class RetryException(Exception):
@@ -33,16 +38,18 @@ def get_page_source_safe(driver):
         return "<html><body><p>Error in getting page source.</p></body></html>"
 
 
-IS_PRODUCTION = IS_VM_OR_DOCKER or  _IS_PRODUCTION
+IS_PRODUCTION = IS_VM_OR_DOCKER or _IS_PRODUCTION
 
 # Define a global variable to track the first run
 first_run = False
+
+
 def print_running():
     global first_run
     if not first_run:
         first_run = True
         print("Running")
-    
+
 
 class AsyncQueueResult:
     def __init__(self, worker_thread, task_queue, result_list):
@@ -86,6 +93,7 @@ class AsyncQueueResult:
 
     def get(self):
         import sys
+
         self._task_queue.put(None)
         thread = self._worker_thread
         try:
@@ -99,20 +107,21 @@ class AsyncQueueResult:
         return flatten(self.result_list)
 
 
-
 def run_parallel(run, ls, n_workers, use_threads):
-    from joblib import Parallel, delayed
-    from .thread_with_result import ThreadWithResult
     import sys
-    
+
+    from joblib import Parallel, delayed
+
+    from .thread_with_result import ThreadWithResult
+
     if use_threads:
-        execute_parallel_tasks = lambda: Parallel(n_jobs=n_workers, backend="threading")(
-            delayed(run)(l) for l in ls
-        )
+        execute_parallel_tasks = lambda: Parallel(
+            n_jobs=n_workers, backend="threading"
+        )(delayed(run)(l) for l in ls)
     else:
         execute_parallel_tasks = lambda: Parallel(n_jobs=n_workers)(
             delayed(run)(l) for l in ls
-        )        
+        )
 
     parallel_thread = ThreadWithResult(target=execute_parallel_tasks, daemon=True)
     parallel_thread.start()
@@ -128,6 +137,7 @@ def run_parallel(run, ls, n_workers, use_threads):
 class AsyncResult:
     def __init__(self, thread):
         from queue import Queue
+
         self._result = None
         self._completed = False
         self._exception = None
@@ -146,6 +156,7 @@ class AsyncResult:
 
     def get(self):
         import sys
+
         thread = self._thread
         try:
             while thread.is_alive():
@@ -225,17 +236,21 @@ def clean_error_logs(error_logs_dir, sort_key):
         folder_path = os.path.join(error_logs_dir, folder)
         rmtree(folder_path, ignore_errors=True)
 
+
 def to_time(x):
     from datetime import datetime
+
     try:
-      return datetime.strptime(x, '%Y-%m-%d_%H-%M-%S')
+        return datetime.strptime(x, "%Y-%m-%d_%H-%M-%S")
     except:
         # causes deletion for it, occurs for files like .DS_STORE
-        old_date = '2021-01-01_10-00-00'
-        return datetime.strptime(old_date, '%Y-%m-%d_%H-%M-%S')    
+        old_date = "2021-01-01_10-00-00"
+        return datetime.strptime(old_date, "%Y-%m-%d_%H-%M-%S")
+
 
 def save_error_logs(exception_log, driver):
     from datetime import datetime
+
     main_error_directory = "error_logs"
     create_directory_if_not_exists(main_error_directory + "/")
 
@@ -246,7 +261,7 @@ def save_error_logs(exception_log, driver):
     error_filename = f"{error_directory}/error.log"
     screenshot_filename = f"{error_directory}/screenshot.png"
     page_filename = f"{error_directory}/page.html"
-    
+
     write_file(exception_log, error_filename)
 
     if driver is not None:
@@ -258,11 +273,12 @@ def save_error_logs(exception_log, driver):
         except Exception as e:
             print(f"Error saving screenshot: {e}")
 
-
     clean_error_logs("error_logs", to_time)
 
+
 def evaluate_proxy(proxy):
-                    if isinstance(proxy, list):
-                        import random
-                        return  random.choice(proxy)
-                    return proxy            
+    if isinstance(proxy, list):
+        import random
+
+        return random.choice(proxy)
+    return proxy

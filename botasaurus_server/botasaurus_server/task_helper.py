@@ -1,28 +1,33 @@
-from datetime import datetime, timezone
+from datetime import datetime
 
-from sqlalchemy import update
+from sqlalchemy import delete, func, select, update
 
 from botasaurus import bt
 
 from .cleaners import normalize_dicts_by_fieldnames
-from .db_setup import Session
+from .db_setup import AsyncSession, AsyncSessionMaker
 from .models import Task, TaskStatus, remove_duplicates_by_key
 from .task_results import TaskResults
 
 
 class TaskHelper:
     @staticmethod
-    def get_completed_children_results(parent_id, except_task_id, remove_duplicates_by):
-        with Session() as session:
-            query = session.query(Task.id).filter(
-                Task.parent_task_id == parent_id, Task.status == TaskStatus.COMPLETED
-            )
-            if except_task_id:
-                query = query.filter(Task.id != except_task_id)
-            query = query.all()
-            query = [q[0] for q in query]
+    async def get_completed_children_results(
+        session: AsyncSession,
+        parent_id: int,
+        except_task_id: int | None = None,
+        remove_duplicates_by: str | None = None,
+    ):
+        query = select(Task.id).where(
+            Task.parent_task_id == parent_id,
+            Task.status == TaskStatus.COMPLETED,
+        )
+        if except_task_id:
+            query = query.where(Task.id != except_task_id)
+        result = await session.execute(query)
+        ids = result.scalars().all()
 
-        all_results = bt.flatten(TaskResults.get_tasks(query))
+        all_results = bt.flatten(await TaskResults.get_tasks(ids))
         rs = normalize_dicts_by_fieldnames(all_results)
 
         if remove_duplicates_by:
@@ -30,12 +35,12 @@ class TaskHelper:
         return rs
 
     @staticmethod
-    def are_all_child_task_done(session, parent_id):
-        done_children_count = TaskHelper.get_done_children_count(
+    async def are_all_child_task_done(session: AsyncSession, parent_id: int):
+        done_children_count = await TaskHelper.get_done_children_count(
             session,
             parent_id,
         )
-        child_count = TaskHelper.get_all_children_count(
+        child_count = await TaskHelper.get_all_children_count(
             session,
             parent_id,
         )
@@ -43,104 +48,155 @@ class TaskHelper:
         return done_children_count == child_count
 
     @staticmethod
-    def get_all_children_count(session, parent_id, except_task_id=None):
-        query = session.query(Task.id).filter(Task.parent_task_id == parent_id)
-        if except_task_id:
-            query = query.filter(Task.id != except_task_id)
-
-        return query.count()
-
-    @staticmethod
-    def get_done_children_count(session, parent_id, except_task_id=None):
-        query = session.query(Task.id).filter(
-            Task.parent_task_id == parent_id,
-            Task.status.in_(
-                [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ABORTED]
-            ),
+    async def get_all_children_count(
+        session: AsyncSession,
+        parent_id: int,
+        except_task_id: int | None = None,
+    ):
+        query = (
+            select(func.count())
+            .select_from(Task)
+            .where(Task.parent_task_id == parent_id)
         )
         if except_task_id:
-            query = query.filter(Task.id != except_task_id)
+            query = query.where(Task.id != except_task_id)
 
-        return query.count()
+        return await session.scalar(query)
 
     @staticmethod
-    def is_task_completed_or_failed(session, task_id):
-        return (
-            session.query(Task.id)
-            .filter(
-                Task.id == task_id,
+    async def get_done_children_count(
+        session: AsyncSession,
+        parent_id: int,
+        except_task_id: int | None = None,
+    ):
+        query = (
+            select(func.count())
+            .select_from(Task)
+            .where(
+                Task.parent_task_id == parent_id,
                 Task.status.in_(
-                    [
-                        TaskStatus.COMPLETED,
-                        TaskStatus.FAILED,
-                    ]
+                    [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ABORTED]
                 ),
             )
-            .first()
-            is not None
-        )
-
-    @staticmethod
-    def get_pending_or_executing_child_count(session, parent_id, except_task_id=None):
-        query = session.query(Task.id).filter(
-            Task.parent_task_id == parent_id,
-            Task.status.in_([TaskStatus.PENDING, TaskStatus.IN_PROGRESS]),
         )
         if except_task_id:
-            query = query.filter(Task.id != except_task_id)
+            query = query.where(Task.id != except_task_id)
 
-        return query.count()
+        return await session.scalar(query)
 
     @staticmethod
-    def get_failed_children_count(session, parent_id, except_task_id=None):
-        query = session.query(Task.id).filter(
-            Task.parent_task_id == parent_id, Task.status == TaskStatus.FAILED
+    async def is_task_completed_or_failed(session: AsyncSession, task_id):
+        query = select(Task.id).where(
+            Task.id == task_id,
+            Task.status.in_(
+                [
+                    TaskStatus.COMPLETED,
+                    TaskStatus.FAILED,
+                ]
+            ),
+        )
+        result = await session.execute(query)
+        return result.scalars().first() is not None
+
+    @staticmethod
+    async def get_pending_or_executing_child_count(
+        session: AsyncSession,
+        parent_id: int,
+        except_task_id: int | None = None,
+    ):
+        query = (
+            select(func.count())
+            .select_from(Task)
+            .where(
+                Task.parent_task_id == parent_id,
+                Task.status.in_(
+                    [TaskStatus.PENDING, TaskStatus.IN_PROGRESS],
+                ),
+            )
         )
         if except_task_id:
-            query = query.filter(Task.id != except_task_id)
+            query = query.where(Task.id != except_task_id)
 
-        return query.count()
+        return await session.scalar(query)
 
     @staticmethod
-    def get_aborted_children_count(session, parent_id, except_task_id=None):
-        query = session.query(Task.id).filter(
-            Task.parent_task_id == parent_id, Task.status == TaskStatus.ABORTED
+    async def get_failed_children_count(
+        session: AsyncSession,
+        parent_id: int,
+        except_task_id: int | None = None,
+    ):
+        query = (
+            select(func.count())
+            .select_from(Task)
+            .where(Task.parent_task_id == parent_id, Task.status == TaskStatus.FAILED)
         )
         if except_task_id:
-            query = query.filter(Task.id != except_task_id)
+            query = query.where(Task.id != except_task_id)
 
-        return query.count()
+        return await session.scalar(query)
 
     @staticmethod
-    def delete_task(session, task_id, is_all_task):
-        session.query(Task).filter(Task.id == task_id).delete()
+    async def get_aborted_children_count(
+        session: AsyncSession,
+        parent_id: int,
+        except_task_id: int | None = None,
+    ):
+        query = (
+            select(func.count())
+            .select_from(Task)
+            .where(Task.parent_task_id == parent_id, Task.status == TaskStatus.ABORTED)
+        )
+        if except_task_id:
+            query = query.where(Task.id != except_task_id)
+
+        return await session.scalar(query)
+
+    @staticmethod
+    async def delete_task(session: AsyncSession, task_id: int, is_all_task: bool):
+        await session.execute(
+            delete(Task).where(Task.id == task_id),
+        )
         if is_all_task:
             TaskResults.delete_all_task(task_id)
         else:
             TaskResults.delete_task(task_id)
 
     @staticmethod
-    def delete_child_tasks(session, task_id):
-        query = session.query(Task.id).filter(Task.parent_task_id == task_id)
-        ids = [q[0] for q in query.all()]
+    async def delete_child_tasks(session: AsyncSession, task_id: int):
+        query = select(Task.id).where(Task.parent_task_id == task_id)
+        result = await session.execute(query)
+        ids = result.scalars().all()
 
-        session.query(Task).filter(Task.parent_task_id == task_id).delete()
+        await session.execute(
+            delete(Task).where(Task.parent_task_id == task_id),
+        )
         TaskResults.delete_tasks(ids)
 
     @staticmethod
-    def update_task(session, task_id, data, in_status=None):
-        query = session.query(Task).filter(Task.id == task_id)
+    async def update_task(
+        session: AsyncSession,
+        task_id: int,
+        data: dict,
+        in_status: list[TaskStatus] | None = None,
+    ):
+        query = update(Task).where(Task.id == task_id)
         if in_status:
-            query = query.filter(Task.status.in_(in_status))
+            query = query.where(Task.status.in_(in_status))
 
-        return query.update(data)
+        query = query.values(**data)
+        return await session.execute(query)
 
     @staticmethod
-    def abort_task(session, task_id):
-        session.query(Task).filter(
-            Task.id == task_id,
-            Task.finished_at.is_(None),
-        ).update({"finished_at": datetime.now(timezone.utc)})
+    async def abort_task(session: AsyncSession, task_id: int):
+        query = (
+            update(Task)
+            .where(
+                Task.id == task_id,
+                Task.finished_at.is_(None),
+            )
+            .values({"finished_at": datetime.now()})
+        )
+        await session.execute(query)
 
         return TaskHelper.update_task(
             session,
@@ -151,45 +207,56 @@ class TaskHelper:
         )
 
     @staticmethod
-    def abort_child_tasks(session, task_id):
-        session.query(Task).filter(
-            Task.parent_task_id == task_id,
-            Task.finished_at.is_(None),
-        ).update({"finished_at": datetime.now(timezone.utc)})
-
-        return (
-            session.query(Task)
-            .filter(Task.parent_task_id == task_id)
-            .update(
-                {
-                    "status": TaskStatus.ABORTED,
-                }
+    async def abort_child_tasks(session: AsyncSession, task_id: int):
+        query = (
+            update(Task)
+            .where(
+                Task.parent_task_id == task_id,
+                Task.finished_at.is_(None),
             )
+            .values({"finished_at": datetime.now()})
         )
+        await session.execute(query)
+
+        query = (
+            update(Task)
+            .where(
+                Task.parent_task_id == task_id,
+                Task.finished_at.is_(None),
+            )
+            .values({"status": TaskStatus.ABORTED})
+        )
+        await session.execute(query)
 
     @staticmethod
-    def collect_and_save_all_task(
-        parent_id, except_task_id, remove_duplicates_by, status
+    async def collect_and_save_all_task(
+        session: AsyncSession,
+        parent_id: int,
+        except_task_id: int | None = None,
+        remove_duplicates_by: str | None = None,
+        status: TaskStatus | None = None,
     ):
-        all_results = TaskHelper.get_completed_children_results(
-            parent_id, except_task_id, remove_duplicates_by
+        all_results = await TaskHelper.get_completed_children_results(
+            session,
+            parent_id,
+            except_task_id,
+            remove_duplicates_by,
         )
         TaskResults.save_all_task(parent_id, all_results)
 
-        with Session() as session:
-            TaskHelper.update_task(
-                session,
-                parent_id,
-                {
-                    "result_count": len(all_results),
-                    "status": status,
-                    "finished_at": datetime.now(timezone.utc),
-                },
-            )
-            session.commit()
+        await TaskHelper.update_task(
+            session,
+            parent_id,
+            {
+                "result_count": len(all_results),
+                "status": status,
+                "finished_at": datetime.now(),
+            },
+        )
+        await session.commit()
 
     @staticmethod
-    def read_clean_save_task(parent_id, remove_duplicates_by, status):
+    async def read_clean_save_task(parent_id, remove_duplicates_by, status):
         rs = TaskResults.get_all_task(parent_id) or []
         rs = normalize_dicts_by_fieldnames(rs)
 
@@ -197,53 +264,68 @@ class TaskHelper:
             rs = remove_duplicates_by_key(rs, remove_duplicates_by)
         TaskResults.save_all_task(parent_id, rs)
 
-        with Session() as session:
-            TaskHelper.update_task(
+        async with AsyncSessionMaker() as session:
+            await TaskHelper.update_task(
                 session,
                 parent_id,
                 {
-                    "result_count": len(
-                        rs
-                    ),  # Fixed to correctly update with rs length after removing duplicates
+                    # update with result length after removing duplicates
+                    "result_count": len(rs),
                     "status": status,
-                    "finished_at": datetime.now(timezone.utc),
+                    "finished_at": datetime.now(),
                 },
             )
-            session.commit()
+            await session.commit()
 
     @staticmethod
-    def update_parent_task_results(parent_id, result):
+    async def update_parent_task_results(parent_id, result):
         if result:
             TaskResults.append_all_task(parent_id, result)
 
-            with Session() as session:
-                session.execute(
+            async with AsyncSessionMaker() as session:
+                await session.execute(
                     update(Task)
                     .where(Task.id == parent_id)
                     .values(result_count=Task.result_count + len(result))
                 )
-                session.commit()
+                await session.commit()
 
     @staticmethod
-    def get_task(session, task_id, in_status=None):
+    async def get_task(
+        session: AsyncSession,
+        task_id: int,
+        in_status: list[TaskStatus] | None = None,
+    ) -> Task | None:
         if in_status:
             return (
-                session.query(Task)
-                .filter(Task.id == task_id, Task.status.in_(in_status))
+                (
+                    await session.execute(
+                        select(Task).where(
+                            Task.id == task_id,
+                            Task.status.in_(in_status),
+                        ),
+                    )
+                )
+                .scalars()
                 .first()
             )
         else:
-            return session.get(Task, task_id)
+            return await session.get(Task, task_id)
 
     @staticmethod
-    def get_tasks_with_entities(session, task_ids, entities):
-        return (
-            session.query(Task)
-            .with_entities(*entities)
-            .filter(Task.id.in_(task_ids))
-            .all()
+    async def get_tasks_with_entities(
+        session: AsyncSession,
+        task_ids: list[int],
+        entities,
+    ) -> list[Task]:
+        result = await session.execute(
+            select(*entities).where(Task.id.in_(task_ids)),
         )
+        return result.all()
 
     @staticmethod
-    def get_tasks_by_ids(session, task_ids):
-        return session.query(Task).filter(Task.id.in_(task_ids)).all()
+    async def get_tasks_by_ids(session: AsyncSession, task_ids) -> list[Task]:
+        result = await session.execute(
+            select(Task).where(Task.id.in_(task_ids)),
+        )
+        return result.scalars().all()

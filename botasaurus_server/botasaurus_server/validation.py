@@ -9,6 +9,7 @@ def serialize(data):
         return [item.to_json() for item in data]
     return data.to_json()
 
+
 def create_task_not_found_error(task_id):
     return JsonHTTPResponse(
         {"status": 404, "message": f"Task {task_id} not found"}, status=404
@@ -30,6 +31,7 @@ def deep_clone_dict(original_dict):
 
     return new_dict
 
+
 def dict_to_string(errors_dict):
     # Iterate through each key-value pair in the dictionary
     formatted_pairs = []
@@ -50,6 +52,7 @@ def is_string_of_min_length(data, min_length=1):
     """Checks if data is a string with a minimum length."""
     return isinstance(data, str) and len(data) >= min_length
 
+
 def ensure_json_body_is_dict(json_data):
     if json_data is None:
         raise JsonHTTPResponseWithMessage("json body must be provided")
@@ -57,12 +60,15 @@ def ensure_json_body_is_dict(json_data):
     if not isinstance(json_data, dict):
         raise JsonHTTPResponseWithMessage("json body must be provided as an object")
 
+
 def validate_scraper_name(scraper_name):
     valid_scraper_names = Server.get_scrapers_names()
-    valid_names_string = ', '.join(valid_scraper_names)
+    valid_names_string = ", ".join(valid_scraper_names)
 
     if len(valid_scraper_names) == 0:
-        error_message = get_scraper_error_message(valid_scraper_names, scraper_name, valid_names_string)
+        error_message = get_scraper_error_message(
+            valid_scraper_names, scraper_name, valid_names_string
+        )
         raise JsonHTTPResponseWithMessage(error_message)
 
     if scraper_name is None:
@@ -72,10 +78,13 @@ def validate_scraper_name(scraper_name):
             error_message = f"'scraper_name' must be provided when there are multiple scrapers. The scraper_name must be one of {valid_names_string}."
             raise JsonHTTPResponseWithMessage(error_message)
     elif not Server.get_scraper(scraper_name):
-        error_message = get_scraper_error_message(valid_scraper_names, scraper_name, valid_names_string)
+        error_message = get_scraper_error_message(
+            valid_scraper_names, scraper_name, valid_names_string
+        )
         raise JsonHTTPResponseWithMessage(error_message)
 
     return scraper_name
+
 
 def validate_task_request(json_data):
     """Validates the task request data."""
@@ -106,11 +115,13 @@ def validate_task_request(json_data):
     metadata = result["metadata"]
     return scraper_name, data, metadata
 
+
 def is_valid_positive_integer(param):
     try:
         return int(param) > 0
     except (ValueError, TypeError):
         return False
+
 
 def is_valid_positive_integer_including_zero(param):
     try:
@@ -118,12 +129,14 @@ def is_valid_positive_integer_including_zero(param):
     except (ValueError, TypeError):
         return False
 
+
 def validate_filters(json_data):
     filters = json_data.get("filters")
     if filters:  # Only validate if it exists
         if not isinstance(filters, dict):
             raise JsonHTTPResponseWithMessage("Filters must be a dictionary")
     return filters
+
 
 def validate_view(json_data, allowed_views):
     view = json_data.get("view")
@@ -141,6 +154,7 @@ def validate_view(json_data, allowed_views):
             )
 
     return view
+
 
 def validate_sort(json_data, allowed_sorts, default_sort):
     sort = json_data.get("sort", default_sort)
@@ -161,6 +175,7 @@ def validate_sort(json_data, allowed_sorts, default_sort):
     else:
         sort = default_sort
     return sort
+
 
 def validate_results_request(json_data, allowed_sorts, allowed_views, default_sort):
     """Validates parameters for a task results request (excluding format)."""
@@ -200,6 +215,7 @@ def validate_results_request(json_data, allowed_sorts, allowed_views, default_so
 
     return filters, sort, view, page, per_page
 
+
 def validate_download_params(json_data, allowed_sorts, allowed_views, default_sort):
     """Validates download parameters for a task."""
 
@@ -238,8 +254,10 @@ def validate_download_params(json_data, allowed_sorts, allowed_views, default_so
 
     return fmt, filters, sort, view, convert_to_english
 
+
 def is_list_of_integers(obj):
     return isinstance(obj, list) and all(isinstance(item, int) for item in obj)
+
 
 def validate_patch_task(json_data):
     ensure_json_body_is_dict(json_data)
@@ -254,6 +272,7 @@ def validate_patch_task(json_data):
 
     return task_ids
 
+
 def validate_ui_patch_task(json_data):
     ensure_json_body_is_dict(json_data)
 
@@ -267,7 +286,9 @@ def validate_ui_patch_task(json_data):
         raise JsonHTTPResponseWithMessage("'action' must be a string")
     action = action.lower()
     if action not in ["abort", "delete"]:
-        raise JsonHTTPResponseWithMessage('\'action\' must be either "abort" or "delete"')
+        raise JsonHTTPResponseWithMessage(
+            '\'action\' must be either "abort" or "delete"'
+        )
 
     if not task_ids:
         raise JsonHTTPResponseWithMessage("'task_ids' must be provided")
