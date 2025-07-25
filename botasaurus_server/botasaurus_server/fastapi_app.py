@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from .env import is_master
 from .routes_db_logic import (
     OK_MESSAGE,
     execute_async_task,
@@ -14,8 +14,8 @@ from .routes_db_logic import (
     execute_get_api_config,
     execute_get_task_results,
     execute_get_tasks,
-    execute_get_ui_task_results,
     execute_get_ui_tasks,
+    execute_get_ui_tasks_results,
     execute_is_any_task_finished,
     execute_is_task_updated,
     execute_patch_task,
@@ -25,16 +25,17 @@ from .routes_db_logic import (
     get_task_from_db,
     perform_patch_task,
 )
-from .validation import validate_patch_task
-from .env import is_master
+from .validation import create_task_not_found_error, validate_patch_task
 
 app = FastAPI(title="Botasaurus API")
 
 if is_master:
     from .master_routes import router as master_router
+
     app.include_router(master_router)
 else:
     from .worker_routes import router as worker_router
+
     app.include_router(worker_router)
 
 app.add_middleware(
@@ -164,13 +165,8 @@ async def get_ui_tasks_results(request: Request):
     json_data = await request.json()
     query_dict = _dict_from_query(request.query_params)
     task_ids = json_data["task_ids"]
-    final = await asyncio.gather(
-        *[
-            execute_get_ui_task_results(task_id, json_data, query_dict)
-            for task_id in task_ids
-        ]
-    )
-    return jsonify(final)
+    result = await execute_get_ui_tasks_results(task_ids, json_data, query_dict)
+    return jsonify(result)
 
 
 @app.get("/api/ui/tasks")
@@ -193,6 +189,7 @@ async def patch_task(
 async def get_ui_task_results(task_id: int, request: Request):
     json_data = await request.json()
     query_dict = _dict_from_query(request.query_params)
-    final = await execute_get_ui_task_results(task_id, json_data, query_dict)
-    return jsonify(final)
-
+    result = await execute_get_ui_tasks_results([task_id], json_data, query_dict)
+    if not result:
+        return create_task_not_found_error("No results found")
+    return jsonify(result[0])

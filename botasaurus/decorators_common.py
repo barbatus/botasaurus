@@ -23,13 +23,6 @@ class RetryException(Exception):
     pass
 
 
-def get_driver_url_safe(driver):
-    try:
-        return driver.current_url
-    except:
-        return "Failed to get driver url"
-
-
 def get_page_source_safe(driver):
     try:
         return driver.page_html
@@ -176,7 +169,7 @@ class AsyncResult:
 def get_driver_url_safe(driver):
     try:
         return driver.current_url
-    except:
+    except Exception:
         return "Failed to get driver url"
 
 
@@ -242,7 +235,7 @@ def to_time(x):
 
     try:
         return datetime.strptime(x, "%Y-%m-%d_%H-%M-%S")
-    except:
+    except Exception:
         # causes deletion for it, occurs for files like .DS_STORE
         old_date = "2021-01-01_10-00-00"
         return datetime.strptime(old_date, "%Y-%m-%d_%H-%M-%S")

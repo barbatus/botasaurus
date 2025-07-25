@@ -166,11 +166,15 @@ class TaskExecutor:
 
             await session.commit()
 
-        for task_json in tasks_json:
-            await self.run_task_and_update_state(
-                scraper_type,
-                task_json,
-            )
+        await asyncio.gather(
+            *[
+                self.run_task_and_update_state(
+                    scraper_type,
+                    task_json,
+                )
+                for task_json in tasks_json
+            ]
+        )
 
     async def run_task_and_update_state(self, scraper_type, task_json):
         await self.run_task(task_json)
@@ -206,11 +210,11 @@ class TaskExecutor:
                     fn,
                     task_data,
                     **metadata,
-                    parallel=None,
-                    cache=False,
-                    beep=False,
-                    run_async=False,
-                    async_queue=False,
+                    # parallel=None,
+                    # cache=False,
+                    # beep=False,
+                    # run_async=False,
+                    # async_queue=False,
                     raise_exception=True,
                     close_on_crash=True,
                     output=None,
@@ -337,7 +341,7 @@ class TaskExecutor:
     async def mark_task_as_failure(self, task_id, exception_log):
         TaskResults.save_task(task_id, exception_log)
         async with AsyncSessionMaker() as session:
-            TaskHelper.update_task(
+            await TaskHelper.update_task(
                 session,
                 task_id,
                 {

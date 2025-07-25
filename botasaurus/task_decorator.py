@@ -1,12 +1,22 @@
 from functools import wraps
-from traceback import print_exc, format_exc
-from typing import Any, Callable, Optional, Union, List
-from .utils import is_errors_instance, NotFoundException
-from .beep_utils import beep_input
-from .list_utils import flatten
+from traceback import format_exc, print_exc
+from typing import Any, Callable, List, Optional, Union
 
-from botasaurus.decorators_common import print_running, write_output, IS_PRODUCTION, AsyncQueueResult, AsyncResult,  run_parallel, save_error_logs
+from botasaurus.decorators_common import (
+    IS_PRODUCTION,
+    AsyncQueueResult,
+    AsyncResult,
+    print_running,
+    run_parallel,
+    save_error_logs,
+    write_output,
+)
+
+from .beep_utils import beep_input
 from .dontcache import is_dont_cache
+from .list_utils import flatten
+from .utils import NotFoundException, is_errors_instance
+
 
 def task(
     _func: Optional[Callable] = None,
@@ -14,7 +24,7 @@ def task(
     parallel: Optional[Union[Callable[[Any], int], int]] = None,
     data: Optional[Union[Callable[[], Any], Any]] = None,
     metadata: Optional[Any] = None,
-    cache: Union[bool, str] = False,  
+    cache: Union[bool, str] = False,
     beep: bool = False,
     run_async: bool = False,
     async_queue: bool = False,
@@ -28,7 +38,7 @@ def task(
     create_error_logs: bool = True,
 ) -> Callable:
     def decorator_requests(func: Callable) -> Callable:
-        if not hasattr(func, '_scraper_type'):
+        if not hasattr(func, "_scraper_type"):
             func._scraper_type = "task"
 
         @wraps(func)
@@ -36,7 +46,15 @@ def task(
             print_running()
 
             nonlocal parallel, data, cache, beep, run_async, async_queue, metadata
-            nonlocal close_on_crash, output, output_formats, max_retry, retry_wait, must_raise_exceptions, raise_exception, create_error_logs
+            nonlocal \
+                close_on_crash, \
+                output, \
+                output_formats, \
+                max_retry, \
+                retry_wait, \
+                must_raise_exceptions, \
+                raise_exception, \
+                create_error_logs
 
             parallel = kwargs.get("parallel", parallel)
             data = kwargs.get("data", data)
@@ -62,7 +80,16 @@ def task(
             fn_name = func.__name__
 
             if cache:
-                from .cache import CacheMissException, _get,_has,_get_cache_path,_create_cache_directory_if_not_exists, _put,_remove
+                from .cache import (
+                    CacheMissException,
+                    _create_cache_directory_if_not_exists,
+                    _get,
+                    _get_cache_path,
+                    _has,
+                    _put,
+                    _remove,
+                )
+
                 _create_cache_directory_if_not_exists(func)
 
             def run_task(
@@ -73,19 +100,19 @@ def task(
                     path = _get_cache_path(func, data)
                     if _has(path):
                         try:
-                          return _get(path)
+                            return _get(path)
                         except CacheMissException:
-                          pass
-                elif cache == 'REFRESH' :
+                            pass
+                elif cache == "REFRESH":
                     path = _get_cache_path(func, data)
-                    
+
                 result = None
                 try:
                     if "metadata" in kwargs or metadata is not None:
                         result = func(data, metadata)
                     else:
                         result = func(data)
-                    if cache is True or cache == 'REFRESH' :
+                    if cache is True or cache == "REFRESH":
                         if is_dont_cache(result):
                             _remove(path)
                         else:
@@ -114,6 +141,7 @@ def task(
                         print_exc()
                         if retry_wait:
                             from time import sleep
+
                             print("Waiting for " + str(retry_wait) + " seconds")
                             sleep(retry_wait)
                         return run_task(data, retry_attempt + 1)
@@ -125,7 +153,6 @@ def task(
                     if create_error_logs:
                         save_error_logs(format_exc(), None)
 
-                    
                     if not IS_PRODUCTION:
                         if raise_exception:
                             print_exc()
@@ -135,8 +162,6 @@ def task(
                                 "We've paused the browser to help you debug. Press 'Enter' to close.",
                                 beep,
                             )
-
-                    
 
                     if raise_exception:
                         raise error
@@ -184,7 +209,6 @@ def task(
 
                 result = run_parallel(run, used_data, n, True)
 
-
             if return_first:
                 if not async_queue:
                     write_output(
@@ -212,7 +236,7 @@ def task(
             @wraps(func)
             def async_wrapper(*args, **kwargs):
                 from threading import Thread
-                
+
                 def thread_target():
                     result = wrapper_requests(*args, **kwargs)
                     async_result.set_result(result)
@@ -231,9 +255,12 @@ def task(
             def async_wrapper(*args, **wrapper_kwargs):
                 from queue import Queue
                 from threading import Thread
+
                 if args:
-                  raise ValueError('When using "async_queue", data must be passed via ".put".')
-   
+                    raise ValueError(
+                        'When using "async_queue", data must be passed via ".put".'
+                    )
+
                 task_queue = Queue()
                 result_list = []
                 orginal_data = []

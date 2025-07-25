@@ -9,7 +9,18 @@ from .fastapi_app import app as fastapi_app
 
 @fastapi_app.on_event("startup")
 async def startup_event():
-    asyncio.create_task(executor.start())
+    import threading
+
+    main_loop = asyncio.get_event_loop()
+
+    def run_executor():
+        future = asyncio.run_coroutine_threadsafe(
+            executor.start(), main_loop
+        )
+        future.result()
+
+    thread = threading.Thread(target=run_executor, daemon=True)
+    thread.start()
 
 
 def run_backend():

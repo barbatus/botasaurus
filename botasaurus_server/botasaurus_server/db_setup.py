@@ -76,11 +76,6 @@ def _ensure_async_drivers(url: str):
             install("asyncpg")
 
 
-# TODO: for now commented, later if needed add back
-# if not path.exists(database_path):
-#     rmtree(relative_path_task_results(), ignore_errors=True)
-
-
 def ensure_directory_exists(x):
     if not path.exists(x):
         makedirs(x)

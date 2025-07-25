@@ -19,7 +19,6 @@ from .models import (
     create_task_name,
     isoformat,
     serialize_task,
-    serialize_ui_display_task,
     serialize_ui_output_task,
 )
 from .retry_on_db_error import retry_on_db_error
@@ -248,12 +247,13 @@ def perform_download_task_results(task_id):
 
 
 @retry_on_db_error
-async def perform_get_ui_task_results(task_id):
+async def perform_get_ui_tasks_results(task_ids):
     async with AsyncSessionMaker() as session:
         tasks = await TaskHelper.get_tasks_with_entities(
             session,
-            [task_id],
+            task_ids,
             [
+                Task.id,
                 Task.scraper_name,
                 Task.result_count,
                 Task.is_all_task,
@@ -262,17 +262,18 @@ async def perform_get_ui_task_results(task_id):
                 Task.status,
             ],
         )
-        task = tasks[0] if tasks else None
-        if not task:
-            raise create_task_not_found_error(task_id)
-
-        scraper_name = task.scraper_name
-        task_data = task.data
-        is_all_task = task.is_all_task
-        result_count = task.result_count
-        serialized_task = serialize_ui_display_task(task)
-
-    return scraper_name, is_all_task, serialized_task, task_data, result_count
+        return [
+            {
+                "scraper_name": task.scraper_name,
+                "is_all_task": task.is_all_task,
+                "task_data": task.data,
+                "result_count": task.result_count,
+                "task_id": task.id,
+                "status": task.status,
+                "updated_at": isoformat(task.updated_at),
+            }
+            for task in tasks
+        ]
 
 
 @retry_on_db_error
@@ -997,36 +998,46 @@ async def execute_patch_task(page, json_data):
     return result
 
 
-async def execute_get_ui_task_results(task_id, json_data, query_params):
-    (
-        scraper_name,
-        is_all_task,
-        serialized_task,
-        task_data,
-        result_count,
-    ) = await perform_get_ui_task_results(task_id)
-    validate_scraper_name(scraper_name)
+async def execute_get_ui_tasks_results(task_ids: list[int], json_data, query_params):
+    task_dicts = await perform_get_ui_tasks_results(task_ids)
 
-    filters, sort, view, page, per_page = validate_results_request(
-        json_data,
-        Server.get_sort_ids(scraper_name),
-        Server.get_view_ids(scraper_name),
-        Server.get_default_sort(scraper_name),
-    )
+    def get_results(task: dict):
+        task_id, scraper_name, is_all_task, task_data, result_count = (
+            task["task_id"],
+            task["scraper_name"],
+            task["is_all_task"],
+            task["task_data"],
+            task["result_count"],
+        )
+        validate_scraper_name(scraper_name)
 
-    forceApplyFirstView = (
-        query_params.get("force_apply_first_view", "none").lower() == "true"
-    )
-    if forceApplyFirstView:
-        view = get_first_view(scraper_name)
+        filters, sort, view, page, per_page = validate_results_request(
+            json_data,
+            Server.get_sort_ids(scraper_name),
+            Server.get_view_ids(scraper_name),
+            Server.get_default_sort(scraper_name),
+        )
 
-    contains_list_field, results = retrieve_task_results(
-        task_id, scraper_name, is_all_task, view, filters, sort, page, per_page
-    )
+        forceApplyFirstView = (
+            query_params.get("force_apply_first_view", "none").lower() == "true"
+        )
+        if forceApplyFirstView:
+            view = get_first_view(scraper_name)
 
-    if not isinstance(results, list):
-        final = {**empty, "results": results, "task": serialized_task}
-    else:
+        contains_list_field, results = retrieve_task_results(
+            task_id,
+            scraper_name,
+            is_all_task,
+            view,
+            filters,
+            sort,
+            page,
+            per_page,
+        )
+
+        if not isinstance(results, list):
+            return {**empty, "results": results, "task": task}
+
         results = clean_results(
             scraper_name,
             results,
@@ -1039,9 +1050,10 @@ async def execute_get_ui_task_results(task_id, json_data, query_params):
             result_count,
             contains_list_field,
         )
-        results["task"] = serialized_task
-        final = results
-    return final
+        results["task"] = task
+        return results
+
+    return [get_results(task) for task in task_dicts]
 
 
 def retrieve_task_results(

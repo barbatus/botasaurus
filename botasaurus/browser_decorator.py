@@ -40,9 +40,9 @@ def close_driver_pool(pool: list):
 def browser(
     _func: Optional[Callable] = None,
     *,
-    parallel: Optional[Union[Callable[[Any], int], int]] = None,
     data: Optional[Union[Callable[[], Any], Any]] = None,
     metadata: Optional[Any] = None,
+    parallel: Optional[Union[Callable[[Any], int], int]] = None,
     cache: Union[bool, str] = False,
     block_images: bool = False,
     block_images_and_css: bool = False,
@@ -352,11 +352,7 @@ def browser(
             used_data = args[0] if len(args) > 0 else data
             used_data = used_data() if callable(used_data) else used_data
             orginal_data = used_data
-
-            return_first = False
-            if type(used_data) is not list:
-                return_first = True
-                used_data = [used_data]
+            used_data = used_data if isinstance(used_data, list) else [used_data]
 
             result = []
             has_number_of_workers = number_of_workers is not None
@@ -384,17 +380,16 @@ def browser(
 
             if not dont_close_driver:
                 close_driver_pool(_driver_pool)
-            if return_first:
-                if not async_queue:
-                    write_output(
-                        output, output_formats, orginal_data, result[0], fn_name
-                    )
-                return result[0]
-            else:
-                if not async_queue:
-                    write_output(output, output_formats, orginal_data, result, fn_name)
 
-                return result
+            if not async_queue:
+                write_output(
+                    output,
+                    output_formats,
+                    orginal_data,
+                    result if isinstance(orginal_data, list) else result[0],
+                    fn_name,
+                )
+            return result if isinstance(orginal_data, list) else result[0]
 
         wrapper_browser._driver_pool = []
 

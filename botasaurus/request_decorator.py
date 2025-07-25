@@ -1,13 +1,23 @@
 from functools import wraps
-from traceback import print_exc, format_exc
-from typing import Any, Callable, Optional, Union, List
-from .utils import is_errors_instance, NotFoundException
-from .create_request import create_request
-from .beep_utils import beep_input
-from .list_utils import flatten
+from traceback import format_exc, print_exc
+from typing import Any, Callable, List, Optional, Union
 
-from botasaurus.decorators_common import print_running, evaluate_proxy, write_output, IS_PRODUCTION, AsyncQueueResult, AsyncResult,  run_parallel, save_error_logs
-from .dontcache import is_dont_cache
+from botasaurus.decorators_common import (
+    IS_PRODUCTION,
+    AsyncQueueResult,
+    AsyncResult,
+    evaluate_proxy,
+    print_running,
+    run_parallel,
+    save_error_logs,
+    write_output,
+)
+
+from .beep_utils import beep_input
+from .create_request import create_request
+from .list_utils import flatten
+from .utils import NotFoundException, is_errors_instance
+
 
 def request(
     _func: Optional[Callable] = None,
@@ -15,9 +25,8 @@ def request(
     parallel: Optional[Union[Callable[[Any], int], int]] = None,
     data: Optional[Union[Callable[[], Any], Any]] = None,
     metadata: Optional[Any] = None,
-    cache: Union[bool, str] = False,  
+    cache: Union[bool, str] = False,
     beep: bool = False,
-    use_stealth: bool = False,
     run_async: bool = False,
     async_queue: bool = False,
     proxy: Optional[Union[Callable[[Any], str], str]] = None,
@@ -32,17 +41,24 @@ def request(
     create_error_logs: bool = True,
 ) -> Callable:
     def decorator_requests(func: Callable) -> Callable:
-        if not hasattr(func, '_scraper_type'):
+        if not hasattr(func, "_scraper_type"):
             func._scraper_type = "request"
-
-        if use_stealth:
-            print("The use_stealth option has been deprecated and will be removed in future releases. Botasaurus now includes best stealth protection enabled by default. To avoid this warning, please remove use_stealth=True from your code.")
 
         @wraps(func)
         def wrapper_requests(*args, **kwargs) -> Any:
             print_running()
             nonlocal parallel, data, cache, beep, run_async, async_queue, metadata
-            nonlocal proxy, user_agent, close_on_crash, output, output_formats, max_retry, retry_wait, must_raise_exceptions, raise_exception, create_error_logs
+            nonlocal \
+                proxy, \
+                user_agent, \
+                close_on_crash, \
+                output, \
+                output_formats, \
+                max_retry, \
+                retry_wait, \
+                must_raise_exceptions, \
+                raise_exception, \
+                create_error_logs
 
             parallel = kwargs.get("parallel", parallel)
             data = kwargs.get("data", data)
@@ -58,25 +74,32 @@ def request(
             output_formats = kwargs.get("output_formats", output_formats)
             max_retry = kwargs.get("max_retry", max_retry)
             retry_wait = kwargs.get("retry_wait", retry_wait)
-            # A Special Option passed by botasaurus server which prevents caching at database level
-            return_dont_cache_as_is = kwargs.get("return_dont_cache_as_is", False)
             must_raise_exceptions = kwargs.get(
                 "must_raise_exceptions", must_raise_exceptions
             )
             create_error_logs = kwargs.get("create_error_logs", create_error_logs)
-
             raise_exception = kwargs.get("raise_exception", raise_exception)
 
             fn_name = func.__name__
 
             if cache:
-                from .cache import CacheMissException,_get,_has,_get_cache_path,_create_cache_directory_if_not_exists, _put,_remove
+                from .cache import (
+                    CacheMissException,
+                    _create_cache_directory_if_not_exists,
+                    _get,
+                    _get_cache_path,
+                    _has,
+                    _put,
+                )
+
                 _create_cache_directory_if_not_exists(func)
             if isinstance(proxy, list):
-                from itertools import cycle       
-                cycled_proxy = cycle(proxy)         
+                from itertools import cycle
+
+                cycled_proxy = cycle(proxy)
             else:
                 cycled_proxy = None
+
             def run_task(
                 data,
                 retry_attempt,
@@ -85,24 +108,23 @@ def request(
                     path = _get_cache_path(func, data)
                     if _has(path):
                         try:
-                          return _get(path)
+                            return _get(path)
                         except CacheMissException:
-                          pass
-                elif cache == 'REFRESH' :
+                            pass
+                elif cache == "REFRESH":
                     path = _get_cache_path(func, data)
-                    
-                    
+
                 if cycled_proxy:
                     evaluated_proxy = next(cycled_proxy)
                 else:
-                    evaluated_proxy = evaluate_proxy(proxy(data) if callable(proxy) else proxy)
+                    evaluated_proxy = evaluate_proxy(
+                        proxy(data) if callable(proxy) else proxy
+                    )
                 evaluated_user_agent = (
                     user_agent(data) if callable(user_agent) else user_agent
                 )
 
-                reqs = create_request(
-                    evaluated_proxy, evaluated_user_agent
-                )
+                reqs = create_request(evaluated_proxy, evaluated_user_agent)
 
                 result = None
                 try:
@@ -110,15 +132,9 @@ def request(
                         result = func(reqs, data, metadata)
                     else:
                         result = func(reqs, data)
-                    if cache is True or cache == 'REFRESH' :
-                        if is_dont_cache(result):
-                            _remove(path)
-                        else:
-                            _put(result, path)
+                    if cache is True or cache == "REFRESH":
+                        _put(result, path)
 
-                    if is_dont_cache(result):
-                        if not return_dont_cache_as_is:
-                            result = result.data
                     return result
                 except Exception as error:
                     if isinstance(error, KeyboardInterrupt):
@@ -160,8 +176,6 @@ def request(
                                 beep,
                             )
 
-                    
-
                     if raise_exception:
                         raise error
 
@@ -175,18 +189,11 @@ def request(
             used_data = args[0] if len(args) > 0 else data
             used_data = used_data() if callable(used_data) else used_data
             orginal_data = used_data
-
-            return_first = False
-            if type(used_data) is not list:
-                return_first = True
-                used_data = [used_data]
+            used_data = used_data if isinstance(used_data, list) else [used_data]
 
             result = []
 
-            has_number_of_workers = number_of_workers is not None and not (
-                number_of_workers == False
-            )
-
+            has_number_of_workers = number_of_workers is not None
             if not has_number_of_workers or number_of_workers <= 1:
                 n = 1
             else:
@@ -203,14 +210,12 @@ def request(
                     current_result = run_task(data_item, 0)
                     return current_result
 
-
                 if callable(parallel):
                     print(f"Running {n} Requests in Parallel")
 
                 result = run_parallel(run, used_data, n, True)
 
-
-            if return_first:
+            if not isinstance(orginal_data, list):
                 if not async_queue:
                     write_output(
                         output, output_formats, orginal_data, result[0], fn_name
@@ -258,7 +263,9 @@ def request(
                 from threading import Thread
 
                 if args:
-                  raise ValueError('When using "async_queue", data must be passed via ".put".')
+                    raise ValueError(
+                        'When using "async_queue", data must be passed via ".put".'
+                    )
                 task_queue = Queue()
                 result_list = []
                 orginal_data = []
