@@ -1,20 +1,24 @@
 import re
-from urllib.parse import urlparse, unquote_plus, urlunparse
 from gzip import decompress
+from urllib.parse import unquote_plus, urlparse, urlunparse
+
 from bs4 import BeautifulSoup
+
+from .cl import join_link
+
 # Import Filters, Extractors are imported from Sitemaps
 from .links import extract_link_upto_nth_segment
-from .cl import join_link
 
 
 class GunzipException(Exception):
     """
     gunzip() exception.
     """
+
     pass
 
 
-def gunzip(data) :
+def gunzip(data):
     """
     Decompresses gzipped data.
 
@@ -59,7 +63,6 @@ def gunzip(data) :
 
 
 def isgzip(url, response):
-
     uri = urlparse(url)
     url_path = unquote_plus(uri.path)
     content_type = response.headers.get("content-type") or ""
@@ -69,6 +72,8 @@ def isgzip(url, response):
 
     else:
         return False
+
+
 def fix_gzip_response(url, response):
     if response.status_code == 404:
         if url.endswith("robots.txt"):
@@ -85,57 +90,60 @@ def fix_gzip_response(url, response):
         return response.text
 
 
-def fix_bad_sitemap_response(s, char='<'):
+def fix_bad_sitemap_response(s, char="<"):
     # Find the index of the given character
     if not s:
         return s
-    
+
     char_index = s.find(char)
-    
+
     # If the character is not found, return the original string
     if char_index == -1:
         return s
-    
+
     # Otherwise, return the substring starting from the character
     return s[char_index:]
 
 
 def extract_sitemaps(content):
-        root = BeautifulSoup(content, 'lxml-xml')
+    root = BeautifulSoup(content, "lxml-xml")
 
-        locs = []
-        # Look for sitemap entries, which indicate nested sitemaps
-        for sm in root.select("sitemap"):
-            el = sm.select_one("loc")
-            if el is not None:
-                locs.append(el.text.strip())
+    locs = []
+    # Look for sitemap entries, which indicate nested sitemaps
+    for sm in root.select("sitemap"):
+        el = sm.select_one("loc")
+        if el is not None:
+            locs.append(el.text.strip())
 
-        return locs
+    return locs
+
 
 def split_into_links_and_sitemaps(content):
-        root = BeautifulSoup(content, 'lxml-xml')
+    root = BeautifulSoup(content, "lxml-xml")
 
-        links = []
-        # Look for URL entries, which indicate actual page links
-        for url_entry in root.select("url"):
-            loc = url_entry.select_one("loc")
-            if loc is not None:
-                links.append(loc.text.strip())
-        # Look for sitemap entries, which indicate nested sitemaps
-        locs = []
-        for sm in root.select("sitemap"):
-            el = sm.select_one("loc")
-            if el is not None:
-                locs.append(el.text.strip())
+    links = []
+    # Look for URL entries, which indicate actual page links
+    for url_entry in root.select("url"):
+        loc = url_entry.select_one("loc")
+        if loc is not None:
+            links.append(loc.text.strip())
+    # Look for sitemap entries, which indicate nested sitemaps
+    locs = []
+    for sm in root.select("sitemap"):
+        el = sm.select_one("loc")
+        if el is not None:
+            locs.append(el.text.strip())
 
-        return links, locs
+    return links, locs
 
 
 def clean_robots_txt_url(url):
     return extract_link_upto_nth_segment(0, url) + "robots.txt"
 
+
 def clean_sitemap_url(url):
     return extract_link_upto_nth_segment(0, url) + "sitemap.xml"
+
 
 def clean_url(base_url, url: str) -> bool:
     """
@@ -150,7 +158,6 @@ def clean_url(base_url, url: str) -> bool:
     if len(url) == 0:
         print("URL is empty")
         return False
-
 
     try:
         uri = urlparse(url)
@@ -195,17 +202,14 @@ def parse_sitemaps_from_robots_txt(base_url, robots_txt_content):
             if cleaned:
                 sitemap_urls[cleaned] = True
             else:
-                print(
-                    f"Sitemap URL '{sitemap_url}' is not a valid URL, skipping"
-                )
+                print(f"Sitemap URL '{sitemap_url}' is not a valid URL, skipping")
 
     return list(sitemap_urls.keys())
 
 
-def wrap_in_sitemap(urls):
-    return [{"url":url, "type":"sitemap"} for url in urls]
+def wrap_in_sitemap(urls: list[str], *, level: int = 0):
+    return [{"url": url, "type": "sitemap", "level": level} for url in urls]
 
 
 def is_empty_path(url):
     return not urlparse(url).path.strip("/")
-

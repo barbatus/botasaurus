@@ -1,4 +1,7 @@
+import asyncio
+import json
 from datetime import datetime, timezone
+from hashlib import sha256
 from time import sleep
 from typing import Any
 
@@ -25,7 +28,7 @@ from .retry_on_db_error import retry_on_db_error
 from .server import Server
 from .sorts import apply_sorts
 from .task_helper import TaskHelper
-from .task_results import TaskResults, create_cache_key
+from .tasks import execute_task
 from .validation import (
     create_task_not_found_error,
     deep_clone_dict,
@@ -68,23 +71,10 @@ async def perform_create_all_task(
 
 
 @retry_on_db_error
-async def perform_create_tasks(tasks, cached_tasks=None) -> list[str]:
+async def perform_create_tasks(tasks) -> list[str]:
     async with AsyncSessionMaker() as session:
         session.add_all(tasks)
         await session.commit()
-
-        if cached_tasks:
-            file_list = [
-                (
-                    t.id,
-                    t.result,
-                )
-                for t in cached_tasks
-            ]
-            parallel_create_files(file_list)
-
-        # basically here we will write cache, as each cached task adds a property called __cached__result = None [default]
-        # but it set when going over cache
         return serialize(tasks)
 
 
@@ -216,9 +206,9 @@ async def perform_get_task_results(task_id):
 
 
 @retry_on_db_error
-def perform_download_task_results(task_id):
-    with Session() as session:
-        tasks = TaskHelper.get_tasks_with_entities(
+async def perform_download_task_results(task_id):
+    async with AsyncSessionMaker() as session:
+        tasks = await TaskHelper.get_tasks_with_entities(
             session,
             [task_id],
             [
@@ -227,23 +217,20 @@ def perform_download_task_results(task_id):
                 Task.data,
                 Task.is_all_task,
                 Task.task_name,
+                Task.result,
             ],
         )
-        task = tasks[0] if tasks else None
-        if not task:
+        if not tasks:
             raise create_task_not_found_error(task_id)
 
-    return (
-        task.scraper_name,
-        (
-            TaskResults.get_all_task(task_id)
-            if task.is_all_task
-            else TaskResults.get_task(task_id)
-        ),
-        task.data,
-        task.is_all_task,
-        task.task_name,
-    )
+        task = tasks[0]
+        return (
+            task.scraper_name,
+            task.result,
+            task.data,
+            task.is_all_task,
+            task.task_name,
+        )
 
 
 @retry_on_db_error
@@ -301,7 +288,7 @@ async def perform_patch_task(action, task_id):
 OK_MESSAGE = {"message": "OK"}
 
 
-async def create_async_task(validated_data):
+async def create_async_task(validated_data) -> Task:
     scraper_name, data, metadata = validated_data
 
     tasks_with_all_task, tasks, split_task = await create_tasks(
@@ -316,6 +303,8 @@ async def create_async_task(validated_data):
 
 async def execute_async_task(json_data):
     result = await create_async_task(validate_task_request(json_data))
+    if result["status"] != TaskStatus.COMPLETED:
+        execute_task.delay(result["id"])
     return result
 
 
@@ -325,6 +314,9 @@ async def execute_async_tasks(json_data):
         await create_async_task(validated_data_item)
         for validated_data_item in validated_data_items
     ]
+    for task in result:
+        if task["status"] != TaskStatus.COMPLETED:
+            execute_task.delay(task["id"])
     return result
 
 
@@ -351,7 +343,7 @@ async def create_tasks(scraper, data, metadata, is_sync):
             data, metadata, is_sync, scraper_name, scraper_type, all_task_sort_id
         )
 
-    def createTask(task_data, sort_id):
+    def create_task(task_data, cached_key: str, sort_id: int):
         task_name = get_task_name(task_data) if get_task_name else None
         return Task(
             status=TaskStatus.PENDING,
@@ -364,65 +356,60 @@ async def create_tasks(scraper, data, metadata, is_sync):
             data=task_data,
             meta_data=metadata,
             sort_id=sort_id,  # Set the sort_id for the child task
+            cached_key=cached_key,
         )
 
-    def create_cached_tasks(
-        task_datas: list[dict[str, Any]],
-    ) -> tuple[list[Task], list[Task], int]:
+    def create_cache_key(scraper_name: str, data: dict) -> str:
+        return (
+            scraper_name
+            + "-"
+            + sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+        )
+
+    async def create_cached_tasks() -> tuple[list[Task], list[Task], int]:
         ls: dict[str, Any] = []
         cache_keys: list[str] = []
 
-        for t in task_datas:
+        for t in tasks_data:
             key = create_cache_key(scraper_name, t)
             ls.append({"key": key, "task_data": t})
             cache_keys.append(key)
 
-        cache_map = create_cache_details(cache_keys)
-
-        def create_cached_task(task_data, cached_result, sort_id):
-            now_time = datetime.now()
-            task_name = get_task_name(task_data) if get_task_name else None
-            return Task(
-                status=TaskStatus.COMPLETED,
-                scraper_name=scraper_name,
-                task_name=task_name,
-                scraper_type=scraper_type,
-                is_all_task=False,
-                is_sync=is_sync,
-                parent_task_id=all_task_id,
-                data=task_data,
-                meta_data=metadata,
-                result_count=len(cached_result),
-                started_at=now_time,
-                finished_at=now_time,
-                sort_id=sort_id,  # Set the sort_id for the cached task
+        cache_map: dict[str, Any] = {}
+        async with AsyncSessionMaker() as session:
+            query = select(Task).where(
+                Task.cached_key.in_(cache_keys),
+                Task.status.in_([TaskStatus.COMPLETED])
             )
+            result = (await session.scalars(query)).all()
+            cache_map = {
+                row.cached_key: row for row in result
+            }
 
         tasks: list[Task] = []
         cached_tasks: list[Task] = []
         for idx, item in enumerate(ls):
-            cached_result = cache_map.get(item["key"])
-            if cached_result:
+            cached_task = cache_map.get(item["key"])
+            if cached_task:
                 sort_id = all_task_sort_id - (idx + 1)
-                ts = create_cached_task(item["task_data"], cached_result, sort_id)
-                ts.result = cached_result
-                tasks.append(ts)
-                cached_tasks.append(ts)
+                cached_tasks.append(cached_task)
             else:
                 sort_id = all_task_sort_id - (idx + 1)
-                tasks.append(createTask(item["task_data"], sort_id))
+                tasks.append(create_task(item["task_data"], item["key"], sort_id))
 
         return tasks, cached_tasks
 
     if Server.cache:
-        tasks, cached_tasks = create_cached_tasks(tasks_data)
-        tasks = await perform_create_tasks(tasks, cached_tasks)
+        tasks, cached_tasks = await create_cached_tasks()
+        tasks = (await perform_create_tasks(tasks) if tasks else []) + [
+            serialize(cached_task) for cached_task in cached_tasks
+        ]
     else:
         tasks = []
         for idx, task_data in enumerate(tasks_data):
             # Assign sort_id for the non-cached task
             sort_id = all_task_sort_id - (idx + 1)
-            tasks.append(createTask(task_data, sort_id))
+            tasks.append(create_task(task_data, sort_id))
         tasks = await perform_create_tasks(tasks)
 
     # here write results with help of cachemap
@@ -431,7 +418,7 @@ async def create_tasks(scraper, data, metadata, is_sync):
             if all_task_id:
                 first_started_at = cached_tasks[0].started_at
                 async with AsyncSessionMaker() as session:
-                    TaskHelper.update_task(
+                    await TaskHelper.update_task(
                         session,
                         all_task_id,
                         {
@@ -456,35 +443,6 @@ async def create_tasks(scraper, data, metadata, is_sync):
         tasks_with_all_task = [all_task] + tasks
 
     return tasks_with_all_task, tasks, split_task
-
-
-def save(x):
-    """Copy a file from source to destination."""
-    TaskResults.save_task(
-        x[0],
-        x[1],
-    )
-
-
-def parallel_create_files(file_list):
-    """
-
-    Copy files in parallel.
-
-    Parameters:
-    file_list (list of dict): List of dictionaries with 'source_file' and 'destination_file' keys.
-    """
-    from joblib import Parallel, delayed
-
-    Parallel(n_jobs=-1)(delayed(save)(file) for file in file_list)
-
-
-def create_cache_details(cache_keys):
-    existing_items = TaskResults.filter_items_in_cache(cache_keys)
-
-    cache_items = TaskResults.get_cached_items_json_filed(existing_items)
-    cache_map = {cache["key"]: cache["result"] for cache in cache_items}
-    return cache_map
 
 
 @retry_on_db_error
@@ -693,7 +651,7 @@ async def execute_get_task_results(task_id, json_data):
         Server.get_view_ids(scraper_name),
         Server.get_default_sort(scraper_name),
     )
-    contains_list_field, results = retrieve_task_results(
+    contains_list_field, results = await retrieve_task_results(
         task_id, scraper_name, is_all_task, view, filters, sort, page, per_page
     )
     if not isinstance(results, list):
@@ -1001,7 +959,7 @@ async def execute_patch_task(page, json_data):
 async def execute_get_ui_tasks_results(task_ids: list[int], json_data, query_params):
     task_dicts = await perform_get_ui_tasks_results(task_ids)
 
-    def get_results(task: dict):
+    async def get_results(task: dict):
         task_id, scraper_name, is_all_task, task_data, result_count = (
             task["task_id"],
             task["scraper_name"],
@@ -1024,7 +982,7 @@ async def execute_get_ui_tasks_results(task_ids: list[int], json_data, query_par
         if forceApplyFirstView:
             view = get_first_view(scraper_name)
 
-        contains_list_field, results = retrieve_task_results(
+        contains_list_field, results = await retrieve_task_results(
             task_id,
             scraper_name,
             is_all_task,
@@ -1053,23 +1011,15 @@ async def execute_get_ui_tasks_results(task_ids: list[int], json_data, query_par
         results["task"] = task
         return results
 
-    return [get_results(task) for task in task_dicts]
+    return await asyncio.gather(*[get_results(task) for task in task_dicts])
 
 
-def retrieve_task_results(
+async def retrieve_task_results(
     task_id, scraper_name, is_all_task, view, filters, sort, page, per_page
 ):
     contains_list_field = (
         view and find_view(Server.get_views(scraper_name), view).contains_list_field
     )
-    if is_all_task:
-        if sort or filters or contains_list_field:
-            # get all tasks we need to apply
-            results = TaskResults.get_all_task(task_id)
-        else:
-            # if is listish view
-            limit = page * per_page if per_page else None
-            results = TaskResults.get_all_task(task_id, limit=limit)
-    else:
-        results = TaskResults.get_task(task_id)
-    return contains_list_field, results
+    async with AsyncSessionMaker() as session:
+        task = await TaskHelper.get_task(session, task_id)
+        return contains_list_field, task.result

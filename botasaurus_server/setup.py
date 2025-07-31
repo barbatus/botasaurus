@@ -14,6 +14,7 @@ install_requires = [
     "uvicorn",
     "python-dotenv",
     "asyncpg",
+    "celery[redis]",
 ]
 
 extras_require = {}

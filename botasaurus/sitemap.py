@@ -1,11 +1,5 @@
-import traceback
 from typing import List
 
-from botasaurus.dontcache import is_dont_cache
-
-from .cache import DontCache
-
-# Import Filters, Extractors are imported from Sitemaps
 from .links import (
     _Base,
     apply_filters_maps_sorts_randomize,
@@ -27,221 +21,47 @@ from .sitemap_parser_utils import (
 )
 
 default_request_options = {
-    # "use_stealth": True,
     "raise_exception": True,
     "create_error_logs": False,
     "close_on_crash": True,
     "output": None,
+    "max_retry": 3,
 }
 
 
-@request(
-    **default_request_options,
-)
-def fetch_content(request, url: str):
+def fetch_content(req, url: str):
     """Fetch content from a URL, handling gzip if necessary."""
-    try:
-        response = request.get(url, timeout=60)
-        return fix_gzip_response(url, response)
-
-    except Exception as e:
-        print(f"failed for {url} due to {str(e)}. Retrying")
-
-        try:
-            response = request.get(url, timeout=60)
-
-            result = fix_gzip_response(url, response)
-            if result is not None:
-                print(f"succeeded for {url}")
-            return result
-        except Exception as e:
-            print(f"skipping {url} as it failed after retry")
-            traceback.print_exc()
-
-        return None
-
-
-def get_sitemaps_urls(request_options, urls):
-    visited = set()
-
-    @request(**request_options)
-    def sitemap(req, data):
-        nonlocal visited  # Reference the global visited set
-
-        url = data.get("url")
-        # [   if isinstance( data, dict)]:
-        # If the URL has already been visited, return an empty list to prevent infinite recursion
-        if url in visited:
-            return []
-
-        visited.add(url)
-
-        content = fix_bad_sitemap_response(
-            fetch_content(url, proxy=request_options["proxy"])
-        )
-        if not content:
-            return DontCache([])
-
-        locs = extract_sitemaps(content)
-
-        links = [url]
-
-        parsed = sitemap(wrap_in_sitemap(locs), return_dont_cache_as_is=True)
-
-        isdn_cache = False
-        for x in parsed:
-            if is_dont_cache(x):
-                isdn_cache = True
-                links.extend(x.data)
-            else:
-                links.extend(x)
-
-        if isdn_cache:
-            return DontCache(links)
-
-        return links
-
-    return sitemap(wrap_in_sitemap(urls))
-
-
-def get_urls(request_options, urls):
-    visited = set()
-
-    @request(**request_options)
-    def sitemap(req, url):
-        nonlocal visited  # Reference the global visited set
-
-        # If the URL has already been visited, return an empty list to prevent infinite recursion
-        if url in visited:
-            return []
-
-        visited.add(url)
-
-        content = fix_bad_sitemap_response(
-            fetch_content(url, proxy=request_options["proxy"])
-        )
-
-        if not content:
-            return DontCache([])
-
-        links, locs = split_into_links_and_sitemaps(content)
-
-        parsed = sitemap(locs, return_dont_cache_as_is=True)
-
-        isdn_cache = False
-        for x in parsed:
-            if is_dont_cache(x):
-                isdn_cache = True
-                links.extend(x.data)
-            else:
-                links.extend(x)
-
-        if isdn_cache:
-            return DontCache(links)
-
-        return links
-
-    return sitemap(
-        urls,
-    )
-
-
-def get_sitemaps_from_robots(request_options, urls):
-    visited = set()
-
-    @request(**request_options)
-    def sitemap(req, url):
-        nonlocal visited  # Reference the global visited set
-
-        # If the URL has already been visited, return an empty list to prevent infinite recursion
-        if url in visited:
-            return []
-
-        visited.add(url)
-        content = fetch_content(url, proxy=request_options["proxy"])
-
-        if not content:
-            return DontCache([])
-
-        result = parse_sitemaps_from_robots_txt(
-            extract_link_upto_nth_segment(0, url), content
-        )
-        if not result:
-            sm_url = clean_sitemap_url(url)
-            content = fetch_content(sm_url, proxy=request_options["proxy"])
-            if content:
-                return [sm_url]
-            return []
-
-        return result
-
-    ls = []
-
-    for url in urls:
-        temp = sitemap(clean_robots_txt_url(url)) if is_empty_path(url) else url
-        ls.append(temp)
-
-    return flatten(ls)
+    response = req.get(url, timeout=300)
+    return fix_gzip_response(url, response)
 
 
 class Sitemap(_Base):
-    def __init__(self, urls, cache=True, proxy=None, parallel=40):
+    def __init__(self, urls: list[str], cache=True, proxy=None, parallel=40):
         self.cache = cache
         self.proxy = proxy
         self.parallel = parallel
-        self._filters = []
-        self._extractors = []
-        self._sort_links = False
-        self._randomize_links = False
-
-        urls = urls if isinstance(urls, list) else [urls]
-
-        urls = get_sitemaps_from_robots(self._create_request_options(), urls)
-        self.urls = urls
+        self.urls = urls if isinstance(urls, list) else [urls]
 
     def links(self) -> List[str]:
         request_options = self._create_request_options()
 
-        # This function should be defined or imported in your code
-        result = get_urls(request_options, self.urls)
-
-        all_urls = []
-        for x in result:
-            all_urls.extend(x)
-
-        # This function should be defined or imported in your code
+        urls = self._get_urls(request_options, self.urls)
         result = apply_filters_maps_sorts_randomize(
-            request_options,
-            all_urls,
-            self._filters,
+            urls,
+            self._filters.get(0, []),
             self._extractors,
             self._sort_links,
             self._randomize_links,
         )
-
         return result
 
-    def sitemaps(self) -> List[str]:
+    def sitemaps(self) -> "Sitemap":
         request_options = self._create_request_options()
 
-        # This function should be defined or imported in your code
-        result = get_sitemaps_urls(request_options, self.urls)
+        self.urls = self._get_sitemaps_from_robots(request_options, self.urls)
+        self.urls = self._get_sitemaps_urls(request_options, self.urls)
 
-        all_urls = []
-        for x in result:
-            all_urls.extend(x)
-
-        # This function should be defined or imported in your code
-        result = apply_filters_maps_sorts_randomize(
-            request_options,
-            all_urls,
-            self._filters,
-            self._extractors,
-            self._sort_links,
-            self._randomize_links,
-        )
-
-        return result
+        return self
 
     def write_links(self, filename: str):
         results = self.links()
@@ -261,3 +81,96 @@ class Sitemap(_Base):
         }
         options["proxy"] = self.proxy
         return options
+
+    def _get_sitemaps_urls(self, request_options, urls):
+        visited = set()
+
+        @request(**request_options)
+        def sitemap(req, data):
+            nonlocal visited
+
+            url = data.get("url")
+            if url in visited:
+                return []
+
+            visited.add(url)
+            print(f"Visiting sitemap {url}")
+            content = fix_bad_sitemap_response(fetch_content(req, url))
+            if not content:
+                return []
+
+            locs = extract_sitemaps(content)
+            level = data.get("level", 0)
+            result = apply_filters_maps_sorts_randomize(
+                locs,
+                self._filters.get(level, []),
+            )
+            child_sitemaps = (
+                sitemap(
+                    wrap_in_sitemap(result, level=level + 1),
+                    return_dont_cache_as_is=True,
+                )
+                if result
+                else []
+            )
+            return ([url] + flatten(child_sitemaps)) if result else [url]
+
+        return flatten(sitemap(wrap_in_sitemap(urls, level=1)))
+
+    def _get_sitemaps_from_robots(self, request_options, urls):
+        visited = set()
+
+        @request(**request_options)
+        def sitemap(req, url):
+            nonlocal visited
+
+            if url in visited:
+                return []
+
+            visited.add(url)
+            content = fetch_content(req, url)
+
+            if not content:
+                return []
+
+            result = parse_sitemaps_from_robots_txt(
+                extract_link_upto_nth_segment(0, url), content
+            )
+            if not result:
+                sm_url = clean_sitemap_url(url)
+                content = fetch_content(req, sm_url)
+                return [sm_url] if content else []
+            result = apply_filters_maps_sorts_randomize(
+                result,
+                self._filters.get(0, []),
+            )
+            return result
+
+        return flatten(
+            sitemap(clean_robots_txt_url(url)) if is_empty_path(url) else url
+            for url in urls
+        )
+
+    def _get_urls(self, request_options, urls):
+        visited = set()
+
+        @request(**request_options)
+        def sitemap(req, url):
+            nonlocal visited  # Reference the global visited set
+
+            if url in visited:
+                return []
+
+            visited.add(url)
+            print(f"Extracting links from {url}")
+            content = fix_bad_sitemap_response(fetch_content(req, url))
+
+            links, locs = split_into_links_and_sitemaps(content)
+
+            return links
+
+        return flatten(
+            sitemap(
+                urls,
+            )
+        )

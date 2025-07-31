@@ -3,8 +3,6 @@ from .server import Server, get_scraper_error_message
 
 
 def serialize(data):
-    if data is None:
-        return None
     if isinstance(data, list):
         return [item.to_json() for item in data]
     return data.to_json()

@@ -4,7 +4,7 @@ from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, Str
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 
-from .task_results import TaskResults
+# from .task_results import TaskResults
 
 Base = declarative_base()
 
@@ -83,29 +83,10 @@ def serialize_ui_display_task(obj):
 
 
 def serialize_task(obj, with_result):
-    task_id = obj.id
-    status = obj.status
-    if with_result:
-        if status == TaskStatus.PENDING:
-            result = {"result": None}
-        elif status != TaskStatus.IN_PROGRESS or obj.is_all_task:
-            # set in cache
-            if not hasattr(obj, "result"):
-                result = {
-                    "result": TaskResults.get_all_task(task_id)
-                    if obj.is_all_task
-                    else TaskResults.get_task(task_id)
-                }
-            else:
-                result = {"result": obj.result}
-        else:
-            result = {"result": None}
-    else:
-        result = {}
     return {
-        "id": task_id,
-        "status": status,
-        "task_name": create_task_name(obj.task_name, task_id),
+        "id": obj.id,
+        "status": obj.status,
+        "task_name": create_task_name(obj.task_name, obj.id),
         "scraper_name": obj.scraper_name,
         "scraper_type": obj.scraper_type,
         "is_all_task": obj.is_all_task,
@@ -116,7 +97,8 @@ def serialize_task(obj, with_result):
         "finished_at": isoformat(obj.finished_at),
         "data": obj.data,
         "metadata": obj.meta_data,
-        **result,
+        "cached_key": obj.cached_key,
+        "result": obj.result if with_result else None,
         "result_count": obj.result_count,
         "created_at": isoformat(obj.created_at),
         "updated_at": isoformat(obj.updated_at),
@@ -151,6 +133,9 @@ class Task(Base):
     result_count = Column(
         Integer, default=0
     )  # Integer field for storing result count, default 0
+
+    result = Column(JSON, nullable=True)
+    cached_key = Column(String, nullable=True)
 
     # Timestamps
     created_at = Column(DateTime, server_default=func.now())

@@ -24,7 +24,7 @@ def normalize_data(data):
 
     else:
         return [{"data": data}]
-    
+
 def normalize_dicts_by_fieldnames(data):
     fieldnames = get_fieldnames(data)
     filtered_data = []

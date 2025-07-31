@@ -5,9 +5,8 @@ from sqlalchemy import delete, func, select, update
 from botasaurus import bt
 
 from .cleaners import normalize_dicts_by_fieldnames
-from .db_setup import AsyncSession, AsyncSessionMaker
+from .db_setup import AsyncSession
 from .models import Task, TaskStatus, remove_duplicates_by_key
-from .task_results import TaskResults
 
 
 class TaskHelper:
@@ -18,16 +17,16 @@ class TaskHelper:
         except_task_id: int | None = None,
         remove_duplicates_by: str | None = None,
     ):
-        query = select(Task.id).where(
+        query = select(Task.result).where(
             Task.parent_task_id == parent_id,
             Task.status == TaskStatus.COMPLETED,
         )
         if except_task_id:
             query = query.where(Task.id != except_task_id)
         result = await session.execute(query)
-        ids = result.scalars().all()
+        results = result.scalars().all()
 
-        all_results = bt.flatten(await TaskResults.get_tasks(ids))
+        all_results = bt.flatten(results)
         rs = normalize_dicts_by_fieldnames(all_results)
 
         if remove_duplicates_by:
@@ -75,7 +74,11 @@ class TaskHelper:
             .where(
                 Task.parent_task_id == parent_id,
                 Task.status.in_(
-                    [TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.ABORTED]
+                    [
+                        TaskStatus.COMPLETED,
+                        TaskStatus.FAILED,
+                        TaskStatus.ABORTED,
+                    ]
                 ),
             )
         )
@@ -128,7 +131,10 @@ class TaskHelper:
         query = (
             select(func.count())
             .select_from(Task)
-            .where(Task.parent_task_id == parent_id, Task.status == TaskStatus.FAILED)
+            .where(
+                Task.parent_task_id == parent_id,
+                Task.status == TaskStatus.FAILED,
+            )
         )
         if except_task_id:
             query = query.where(Task.id != except_task_id)
@@ -144,7 +150,10 @@ class TaskHelper:
         query = (
             select(func.count())
             .select_from(Task)
-            .where(Task.parent_task_id == parent_id, Task.status == TaskStatus.ABORTED)
+            .where(
+                Task.parent_task_id == parent_id,
+                Task.status == TaskStatus.ABORTED,
+            )
         )
         if except_task_id:
             query = query.where(Task.id != except_task_id)
@@ -152,25 +161,18 @@ class TaskHelper:
         return await session.scalar(query)
 
     @staticmethod
-    async def delete_task(session: AsyncSession, task_id: int, is_all_task: bool):
+    async def delete_task(
+        session: AsyncSession, task_id: int, is_all_task: bool
+    ):
         await session.execute(
             delete(Task).where(Task.id == task_id),
         )
-        if is_all_task:
-            TaskResults.delete_all_task(task_id)
-        else:
-            TaskResults.delete_task(task_id)
 
     @staticmethod
     async def delete_child_tasks(session: AsyncSession, task_id: int):
-        query = select(Task.id).where(Task.parent_task_id == task_id)
-        result = await session.execute(query)
-        ids = result.scalars().all()
-
         await session.execute(
             delete(Task).where(Task.parent_task_id == task_id),
         )
-        TaskResults.delete_tasks(ids)
 
     @staticmethod
     async def update_task(
@@ -242,7 +244,7 @@ class TaskHelper:
             except_task_id,
             remove_duplicates_by,
         )
-        TaskResults.save_all_task(parent_id, all_results)
+        # TaskResults.save_all_task(parent_id, all_results)
 
         await TaskHelper.update_task(
             session,
@@ -251,44 +253,48 @@ class TaskHelper:
                 "result_count": len(all_results),
                 "status": status,
                 "finished_at": datetime.now(),
+                "result": all_results,
             },
         )
         await session.commit()
 
+    # @staticmethod
+    # async def read_clean_save_task(parent_id, remove_duplicates_by, status):
+    #     rs = TaskResults.get_all_task(parent_id) or []
+    #     rs = normalize_dicts_by_fieldnames(rs)
+
+    #     if remove_duplicates_by:
+    #         rs = remove_duplicates_by_key(rs, remove_duplicates_by)
+    #     TaskResults.save_all_task(parent_id, rs)
+
+    #     async with AsyncSessionMaker() as session:
+    #         await TaskHelper.update_task(
+    #             session,
+    #             parent_id,
+    #             {
+    #                 # update with result length after removing duplicates
+    #                 "result_count": len(rs),
+    #                 "status": status,
+    #                 "finished_at": datetime.now(),
+    #             },
+    #         )
+    #         await session.commit()
+
     @staticmethod
-    async def read_clean_save_task(parent_id, remove_duplicates_by, status):
-        rs = TaskResults.get_all_task(parent_id) or []
-        rs = normalize_dicts_by_fieldnames(rs)
-
-        if remove_duplicates_by:
-            rs = remove_duplicates_by_key(rs, remove_duplicates_by)
-        TaskResults.save_all_task(parent_id, rs)
-
-        async with AsyncSessionMaker() as session:
-            await TaskHelper.update_task(
-                session,
-                parent_id,
-                {
-                    # update with result length after removing duplicates
-                    "result_count": len(rs),
-                    "status": status,
-                    "finished_at": datetime.now(),
-                },
-            )
-            await session.commit()
-
-    @staticmethod
-    async def update_parent_task_results(parent_id, result):
-        if result:
-            TaskResults.append_all_task(parent_id, result)
-
-            async with AsyncSessionMaker() as session:
-                await session.execute(
-                    update(Task)
-                    .where(Task.id == parent_id)
-                    .values(result_count=Task.result_count + len(result))
+    async def update_parent_task_results(session: AsyncSession, parent_id, result):
+        from sqlalchemy import text
+        await session.execute(
+            update(Task)
+            .where(Task.id == parent_id)
+            .values(
+                result_count=Task.result_count + len(result),
+                result=text(
+                    "COALESCE(result, '[]'::json) || :new_result::json"
                 )
-                await session.commit()
+            ),
+            {"new_result": result}
+        )
+        await session.commit()
 
     @staticmethod
     async def get_task(

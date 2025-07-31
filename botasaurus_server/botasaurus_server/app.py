@@ -1,29 +1,22 @@
-import asyncio
-
 import uvicorn
+from celery.apps.worker import Worker
 
 from .env import is_in_kubernetes
-from .executor import executor
 from .fastapi_app import app as fastapi_app
 
 
-@fastapi_app.on_event("startup")
-async def startup_event():
-    import threading
-
-    main_loop = asyncio.get_event_loop()
-
-    def run_executor():
-        future = asyncio.run_coroutine_threadsafe(
-            executor.start(), main_loop
-        )
-        future.result()
-
-    thread = threading.Thread(target=run_executor, daemon=True)
-    thread.start()
-
-
-def run_backend():
+def run_server():
     host = "0.0.0.0" if is_in_kubernetes else "127.0.0.1"
 
     uvicorn.run(fastapi_app, host=host, port=8000, log_level="info")
+
+
+def run_worker():
+    from .celery_worker import celery_app
+
+    worker_instance = Worker(
+        app=celery_app,
+        loglevel="INFO",
+        traceback=True,
+    )
+    worker_instance.start()

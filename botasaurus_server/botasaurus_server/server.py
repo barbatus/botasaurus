@@ -1,15 +1,19 @@
 import json
-import re
-from casefy import titlecase
 import os
+import re
 from hashlib import sha256
-from .sorts import Sort
-from .scraper_type import ScraperType
+
+from casefy import titlecase
+
 from .controls_adapter import ControlsAdapter
+from .scraper_type import ScraperType
+from .sorts import Sort
+
 
 def relative_path(path, goback=0):
     levels = [".."] * (goback + -1)
     return os.path.abspath(os.path.join(os.getcwd(), *levels, path.strip()))
+
 
 def compute_hash(content):
     return sha256(content.encode("utf-8")).hexdigest()
@@ -23,13 +27,14 @@ def get_readme():
     except FileNotFoundError:
         return ""
 
+
 def replace_require_with_json(code: str, FileTypes) -> str:
     """
     Replaces require statements with a specified JSON object in the given JavaScript code.
-    
+
     Args:
         code (str): The JavaScript code as a string.
-    
+
     Returns:
         str: The modified JavaScript code.
     """
@@ -37,12 +42,20 @@ def replace_require_with_json(code: str, FileTypes) -> str:
     replacement = json.dumps(FileTypes)
 
     # Replace require statements with the specified JSON object
-    return re.sub(r"require\s*\(\s*['\"`]botasaurus-controls['\"`]\s*\)\s*;?", replacement, code)
+    return re.sub(
+        r"require\s*\(\s*['\"`]botasaurus-controls['\"`]\s*\)\s*;?", replacement, code
+    )
+
 
 def get_scraper_error_message(valid_scraper_names, scraper_name, valid_names_string):
     if len(valid_scraper_names) == 0:
         return f"The scraper named '{scraper_name}' does not exist. No scrapers are currently available. Please add a scraper using the Server.add_scraper method."
-    return f"A scraper with the name '{scraper_name}' does not exist. The scraper_name must be {valid_names_string}." if len(valid_scraper_names) == 1 else f"A scraper with the name '{scraper_name}' does not exist. The scraper_name must be one of {valid_names_string}."
+    return (
+        f"A scraper with the name '{scraper_name}' does not exist. The scraper_name must be {valid_names_string}."
+        if len(valid_scraper_names) == 1
+        else f"A scraper with the name '{scraper_name}' does not exist. The scraper_name must be one of {valid_names_string}."
+    )
+
 
 class _Server:
     def __init__(self):
@@ -57,10 +70,14 @@ class _Server:
 
     def set_database_url(self, database_url=None, database_options=None):
         if self._is_database_initialized:
-            raise Exception('The database has already been initialized. To resolve this error, ensure that the line ("from botasaurus_server.run import run") comes after the line ("import backend.scrapers") in the "run.py" file.')
+            raise Exception(
+                'The database has already been initialized. To resolve this error, ensure that the line ("from botasaurus_server.run import run") comes after the line ("import backend.scrapers") in the "run.py" file.'
+            )
         self.database_url = database_url
         self.database_options = database_options
 
+    def set_proxy_url(self, proxy_url: str):
+        self.proxy_url = proxy_url
 
     def get_config(self):
         if not self.config:
@@ -168,27 +185,23 @@ class _Server:
 
         if not isinstance(filters, list):
             filters = [filters]
-            
 
         if not isinstance(sorts, list):
             sorts = [sorts]
 
-
         if not isinstance(views, list):
             views = [views]
-                                    
+
         # if not create_all_task and remove_duplicates_by:
         #     raise ValueError(
         #         "create_all_task must be True when remove_duplicates_by is provided."
-        #     )        
+        #     )
 
         # Check for duplicate views
         view_ids = [view.id for view in views]
         if len(view_ids) != len(set(view_ids)):
             duplicate_view_ids = [id for id in view_ids if view_ids.count(id) > 1]
             raise ValueError(f"Duplicate views found: {duplicate_view_ids}")
-        
-        
 
         # Check for duplicate sorts
         sort_ids = [sort.id for sort in sorts]
@@ -198,23 +211,26 @@ class _Server:
 
         is_default_found = False
         default_sort = None
-        
-        nosort = Sort(label='No Sort')
-        nosort.id = 'no_sort'
+
+        nosort = Sort(label="No Sort")
+        nosort.id = "no_sort"
         for sort in sorts:
             if sort.id == nosort.id:
-                raise ValueError(f"Sort id '{nosort.id}' is reserved. Kindly use a different id.")
-             
+                raise ValueError(
+                    f"Sort id '{nosort.id}' is reserved. Kindly use a different id."
+                )
+
             if sort.is_default:
                 if is_default_found:
-                    nid  = sort.id
-                    raise ValueError(f"More than one default sort ({default_sort}, {nid}) found. Kindly apply is_default sort on 1 Sort.")
+                    nid = sort.id
+                    raise ValueError(
+                        f"More than one default sort ({default_sort}, {nid}) found. Kindly apply is_default sort on 1 Sort."
+                    )
                 is_default_found = True
                 default_sort = sort.id
         default_sort = default_sort if default_sort is not None else nosort.id
         nosort.is_default = default_sort == nosort.id
         sorts.insert(0, nosort)
-        
 
         # Check for duplicate filters
         filter_ids = [filter_.id for filter_ in filters]
@@ -230,20 +246,20 @@ class _Server:
 
         input_js = self.get_input_js(scraper_function_name)
         self.scrapers[scraper_function_name] = {
-        "name": display_name,
-        "input_js": input_js,
-        "function": scraper_function,
-        "scraper_name": scraper_function_name,
-        "scraper_type": scraper_function._scraper_type,
-        "get_task_name": get_task_name,
-        "create_all_task": create_all_task,
-        "split_task": split_task,
-        "filters": filters,
-        "sorts": sorts,
-        "views": views,
-        "default_sort": default_sort,  
-        "remove_duplicates_by":remove_duplicates_by,
-    }
+            "name": display_name,
+            "input_js": input_js,
+            "function": scraper_function,
+            "scraper_name": scraper_function_name,
+            "scraper_type": scraper_function._scraper_type,
+            "get_task_name": get_task_name,
+            "create_all_task": create_all_task,
+            "split_task": split_task,
+            "filters": filters,
+            "sorts": sorts,
+            "views": views,
+            "default_sort": default_sort,
+            "remove_duplicates_by": remove_duplicates_by,
+        }
 
     def get_scrapers_config(self):
         scraper_list = []
@@ -253,7 +269,7 @@ class _Server:
             scraper["input_js"] = input_js
 
             views_json = [view.to_json() for view in scraper["views"]]
-       
+
             default_sort = scraper["default_sort"]
 
             scraper_list.append(
@@ -265,7 +281,7 @@ class _Server:
                     "filters": [filter_.to_json() for filter_ in scraper["filters"]],
                     "sorts": [sort.to_json() for sort in scraper["sorts"]],
                     "views": views_json,
-                    "default_sort": default_sort,                      
+                    "default_sort": default_sort,
                 }
             )
         return scraper_list
@@ -275,18 +291,31 @@ class _Server:
         input_js = None
         if os.path.exists(input_js_path):
             with open(input_js_path, "r") as file:
-                input_js = replace_require_with_json(file.read(),  {"FileTypes": {
-                        "IMAGE": ["jpeg", "jpg", "png", "gif", "bmp", "svg", "webp"],
-                        "EXCEL": ["xls", "xlsx"],
-                        "AUDIO": ["mp3", "wav", "ogg", "m4a", "flac"],
-                        "CSV": ["csv"],
-                        "PDF": ["pdf"],
-                        "ZIP": ["zip"],
-                        "VIDEO": ["mp4", "avi", "mov", "wmv", "flv", "mkv"],
-                    }},)
+                input_js = replace_require_with_json(
+                    file.read(),
+                    {
+                        "FileTypes": {
+                            "IMAGE": [
+                                "jpeg",
+                                "jpg",
+                                "png",
+                                "gif",
+                                "bmp",
+                                "svg",
+                                "webp",
+                            ],
+                            "EXCEL": ["xls", "xlsx"],
+                            "AUDIO": ["mp3", "wav", "ogg", "m4a", "flac"],
+                            "CSV": ["csv"],
+                            "PDF": ["pdf"],
+                            "ZIP": ["zip"],
+                            "VIDEO": ["mp4", "avi", "mov", "wmv", "flv", "mkv"],
+                        }
+                    },
+                )
         else:
             scraper_file_path = f"backend/inputs/{scraper_name}.js"
-            
+
             raise ValueError(
                 f"Input js file not found for {scraper_name}, at path {scraper_file_path}. Kindly create it."
             )
@@ -326,9 +355,9 @@ class _Server:
         ]
 
     def set_rate_limit(self, browser=1, request=30, task=30):
-        self.rate_limit["browser"] =  browser
-        self.rate_limit["request"] =  request
-        self.rate_limit["task"] =  task
+        self.rate_limit["browser"] = browser
+        self.rate_limit["request"] = request
+        self.rate_limit["task"] = task
 
     def get_rate_limit(self):
         return self.rate_limit

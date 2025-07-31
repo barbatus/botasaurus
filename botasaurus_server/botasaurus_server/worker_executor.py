@@ -34,7 +34,7 @@ class WorkerExecutor():
 
     def start(self):
         pass
-    
+
     def run_worker_task(self, task, node_name):
         Thread(target=self.perform_worker_task, args=(task, node_name,), daemon=True).start()
 

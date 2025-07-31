@@ -1,7 +1,8 @@
 import subprocess
 import sys
+import threading
 from os import getcwd, makedirs, path
-from typing import AsyncGenerator
+from contextlib import asynccontextmanager
 
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import (
@@ -12,9 +13,13 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import sessionmaker
 
 from .env import is_master
-from .models import Base  # Assuming Task is one of your models
-from .server import Server  # Assuming Task is one of your models
-from .utils import path_task_results, path_task_results_cache, path_task_results_tasks
+from .models import Base
+from .server import Server
+from .utils import (
+    path_task_results,
+    path_task_results_cache,
+    path_task_results_tasks
+)
 
 
 def install(package):
@@ -23,13 +28,14 @@ def install(package):
 
 def dynamically_import_postgres():
     try:
-        import psycopg2
+        import psycopg2  # noqa: F401
     except ImportError:
         install("psycopg2-binary")
 
 
 def relative_path_backend():
-    """Determines the relative path to the database file, prioritizing 'backend/db.sqlite3'."""
+    """Determines the relative path to the database file,
+    prioritizing 'backend/db.sqlite3'."""
     if is_master:
         return path.abspath(path.join(getcwd(), "..", "db", "db.sqlite3"))
     else:
@@ -86,7 +92,9 @@ ensure_directory_exists(path_task_results_tasks)
 ensure_directory_exists(path_task_results_cache)
 
 db_url = (
-    clean_database_url(Server.database_url) if Server.database_url else get_sqlite_url()
+    clean_database_url(Server.database_url)
+    if Server.database_url
+    else get_sqlite_url()
 )
 Server._is_database_initialized = True
 engine = create_engine(db_url, **(Server.database_options or {}))
@@ -109,8 +117,29 @@ AsyncSessionMaker = async_sessionmaker(
 )
 
 
-async def get_async_session() -> AsyncGenerator[AsyncSession, AsyncSession]:
-    async with AsyncSessionMaker() as session:
+thread_local = threading.local()
+
+
+def create_async_session_maker():
+    if not hasattr(thread_local, 'async_engine'):
+        thread_local.async_engine = create_async_engine(
+            async_db_url,
+            **(Server.database_options or {}),
+        )
+
+        thread_local.session_maker = async_sessionmaker(
+            bind=thread_local.async_engine,
+            expire_on_commit=False,
+            class_=AsyncSession,
+        )
+
+    return thread_local.session_maker
+
+
+@asynccontextmanager
+async def get_async_session():
+    session_maker = create_async_session_maker()
+    async with session_maker() as session:
         yield session
 
 

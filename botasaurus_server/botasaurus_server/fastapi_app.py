@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from botasaurus.links import Filters
+from botasaurus.sitemap import Sitemap
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
+from pydantic import BaseModel, Field
 
 from .env import is_master
 from .routes_db_logic import (
@@ -25,6 +28,7 @@ from .routes_db_logic import (
     get_task_from_db,
     perform_patch_task,
 )
+from .server import Server
 from .validation import create_task_not_found_error, validate_patch_task
 
 app = FastAPI(title="Botasaurus API")
@@ -193,3 +197,54 @@ async def get_ui_task_results(task_id: int, request: Request):
     if not result:
         return create_task_not_found_error("No results found")
     return jsonify(result[0])
+
+
+class SitemapFilter(BaseModel):
+    segment: str
+    isFirst: bool
+    level: int
+
+
+class LinkFilter(BaseModel):
+    segment: str
+    level: int
+
+
+class SitemapRequest(BaseModel):
+    domain: str
+    sitemaps: list[SitemapFilter] = Field(default_factory=list)
+    links: list[LinkFilter] = Field(default_factory=list)
+
+
+@app.post("/api/sitemaps/links", response_model=list[str])
+async def get_sitemap_links(body: SitemapRequest) -> list[str]:
+    domain = body.domain
+    sitemap_filters = body.sitemaps
+    link_filters = body.links
+
+    def convert_filters(filters: list[SitemapFilter | LinkFilter], level: int):
+        return (
+            Filters.first_segment_equals(filter.segment)
+            if filter.isFirst
+            else Filters.last_segment_equals(filter.segment)
+            for filter in filters
+            if filter.level == level
+        )
+
+    sitemaps_first_level = convert_filters(sitemap_filters, 0)
+    sitemaps_second_level = convert_filters(sitemap_filters, 1)
+    links_first_level = convert_filters(link_filters, 0)
+
+    sitemap_links = (
+        Sitemap(
+            domain,
+            cache="REFRESH",
+            proxy=Server.proxy_url,
+        )
+        .filter(*sitemaps_first_level, level=0)
+        .filter(*sitemaps_second_level, level=1)
+        .sitemaps()
+        .filter(*links_first_level, level=0)
+        .links()
+    )
+    return jsonify(sitemap_links)

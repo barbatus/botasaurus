@@ -71,11 +71,12 @@ class K8s:
             node = {"node_name": pod.metadata.name, "current_capacity": {"request": 0, "browser": 0, "task": 0}}
             nodes.append(node)
         return nodes
-        
+
     def run_task_on_node(self, task, node_name):
         url = f"http://{node_name}.worker-srv.default.svc.cluster.local:8000/k8s/run-worker-task"
         payload = {"task": task, "node_name": node_name}
         response = requests.post(url, json=payload)
         response.raise_for_status()
+
 if __name__ == "__main__":
-    K8s()    
+    K8s()

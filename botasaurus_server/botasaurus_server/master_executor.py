@@ -19,13 +19,13 @@ class MasterExecutor(TaskExecutor):
         return self.current_capacity[scraper_type]
 
     def run_task_and_update_state(self, scraper_type, task_json):
-            node = self.k8s.get_min_capacity_node(scraper_type) 
+        node = self.k8s.get_min_capacity_node(scraper_type)
 
-            # Send task to the selected node
-            self.k8s.run_task_on_node(task_json, node['node_name'])
+        # Send task to the selected node
+        self.k8s.run_task_on_node(task_json, node['node_name'])
 
-            # Update capacities
-            self.increment_master_capacity(node, scraper_type)
+        # Update capacities
+        self.increment_master_capacity(node, scraper_type)
 
     def increment_master_capacity(self, node , scraper_type):
         with self.lock:
@@ -42,18 +42,18 @@ class MasterExecutor(TaskExecutor):
         replicas = len(self.k8s.nodes)
         return {"request": limit["request"] * replicas,"task": limit["task"] * replicas, "browser": limit["browser"] * replicas}
 
-    def on_success(self, task_id, task_type, task_result, node_name,scraper_name, data):
+    def on_success(self, task_id, task_type, task_result, node_name, scraper_name, data):
         node = self.k8s.get_node(node_name)
         self.decrement_master_capacity(node, task_type)
 
         # Further processing of task_result can be done here
-        self.mark_task_as_success(task_id, task_result, Server.cache,scraper_name, data)
+        self.mark_task_as_success(task_id, task_result, Server.cache, scraper_name, data)
         self.update_parent_task(task_id, task_result)
-    
+
     def on_failure(self, task_id, task_type, task_result, node_name):
         node = self.k8s.get_node(node_name)
         self.decrement_master_capacity(node, task_type)
-        
+
         # Further processing of task_result can be done here
         self.mark_task_as_failure(task_id, task_result)
         self.update_parent_task(task_id, [])

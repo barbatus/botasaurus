@@ -6,7 +6,7 @@ import webbrowser
 from threading import Thread
 from time import sleep
 
-from .app import run_backend
+from .app import run_server, run_worker
 from .env import is_vmish
 
 # skip for now, not really big issue user complains and makes thing quite fast
@@ -29,7 +29,7 @@ Commands:
   (no arguments)    Runs both the backend and frontend services.
   backend           Runs only the backend api service.
   install           Installs the frontend service.
-  dev               Run the backend normally, and the frontend in development mode with hot reloading, allowing you to see UI changes immediately as you update the Next.js frontend code in the "frontend/src" folder.  This functionality is mostly not needed and is only useful when you need to change frontend ui's appearance. 
+  dev               Run the backend normally, and the frontend in development mode with hot reloading, allowing you to see UI changes immediately as you update the Next.js frontend code in the "frontend/src" folder.  This functionality is mostly not needed and is only useful when you need to change frontend ui's appearance.
 """)
 
 
@@ -49,7 +49,7 @@ def is_server_ready(url):
             return (
                 response.getcode() > 199 and response.getcode() < 300
             )  # Check using > and <
-    except:
+    except Exception:
         return False
 
 
@@ -109,20 +109,18 @@ def run_frontend(is_dev):
         start_frontend(is_dev)
 
 
-def run_backend_catch_exceptions():
+def run_server_catch_exceptions():
     try:
-        run_backend()
+        run_server()
     except OSError as e:
         if "address" not in str(e).lower():
             raise
         killbackendport()
-        run_backend()
+        run_server()
 
 
-def run_backend_in_thread():
-    # sleep(1)
-
-    Thread(target=run_backend_catch_exceptions, daemon=True).start()
+def run_server_in_thread():
+    Thread(target=run_server_catch_exceptions, daemon=True).start()
 
 
 def is_direct_run(args):
@@ -154,23 +152,23 @@ def run():
                 killbackendport()
 
             # killbackendport()
-            run_backend()
+            run_server()
         elif main_arg == "dev":
             print_frontend_run_message()
             if "--force" in sys.argv:
                 killfrontendandbackendports()
 
-            # killfrontendandbackendports()
-            # No arguments provided, run both backend and frontend
-            run_backend_in_thread()
+            run_server_in_thread()
             open_browser_in_thread()
             run_frontend(True)
+        elif main_arg == "worker":
+            run_worker()
         elif is_direct_run(sys.argv[1:]):
             print_frontend_run_message()
             if "--force" in sys.argv:
                 killfrontendandbackendports()
-            # No arguments provided, run both backend and frontend
-            run_backend_in_thread()
+
+            run_server_in_thread()
             open_browser_in_thread()
             run_frontend(False)
         else:

@@ -1,9 +1,9 @@
-from random import shuffle
 import functools
+from random import shuffle
+from typing import List, Union
 from urllib.parse import urlparse, urlunparse
-from typing import Union, List
+
 from .output import write_json
-from .request_decorator import request
 
 default_request_options = {
     # "use_stealth": True,
@@ -81,7 +81,6 @@ def extract_link_upto_nth_segment(n, url):
 
 
 class Filters:
-
     @staticmethod
     @filter_decorator
     def has_exactly_n_segments(n):
@@ -182,6 +181,8 @@ class Filters:
         def filter_func(url):
             path = urlparse(url).path.strip("/")
             segments = path.split("/") if path else []
+            if isinstance(value, list):
+                return segments[-1] in value if segments else False
             return segments[-1] == value if segments else False
 
         return filter_func
@@ -273,10 +274,7 @@ class Filters:
         return filter_func
 
 
-
-
 class Extractors:
-
     @staticmethod
     @extractor_decorator
     def extract_nth_segment(n):
@@ -335,69 +333,48 @@ class Extractors:
 
 
 def apply_filters_maps_sorts_randomize(
-    request_options,
     urls,
-    _filters,
-    _extractors,
-    _sort_links,
-    _randomize_links,
+    filters,
+    extractors=[],
+    sort_links=False,
+    randomize_links=False,
 ):
+    filtered_urls = []
+    for url in urls:
+        passes_filters = True
+        for filter_info in filters:
+            filter_func = filter_info["function"]
+            if not filter_func(url):
+                passes_filters = False
+                break
+        if passes_filters:
+            filtered_urls.append(url)
 
-    @request(**request_options)
-    def sitemap(req, _):
-        nonlocal urls
+    extracted_urls = []
+    for url in filtered_urls:
+        transformed_url = url
+        for map_info in extractors or [{"function": lambda x: x}]:
+            extract_func = map_info["function"]
+            transformed_url = extract_func(transformed_url)
+        extracted_urls.append(transformed_url)
 
-        filtered_urls = []
-        for url in urls:
-            passes_filters = True
-            for filter_info in _filters:
-                filter_func = filter_info["function"]
-                if not filter_func(url):
-                    passes_filters = False
-                    break
-            if passes_filters:
-                filtered_urls.append(url)
+    all_urls = list(set(extracted_urls))
 
-        extracted_urls = []
-        for url in filtered_urls:
-            transformed_url = url
-            for map_info in _extractors:
-                extract_func = map_info["function"]
-                transformed_url = extract_func(
-                    transformed_url
-                )  # Apply each extract function in turn
-            extracted_urls.append(
-                transformed_url
-            )  # Add the final transformed URL to the new list
-
-        urls = extracted_urls
-
-        all_urls = unique_keys(urls)
-
-        if _sort_links:
-            all_urls.sort()
-        elif _randomize_links:
-            shuffle(all_urls)
-        return all_urls
-
-    filters_without_function = remove_function_key(_filters)
-    extractors_without_function = remove_function_key(_extractors)
-
-    data = {
-        "_filters": filters_without_function,
-        "_extractors": extractors_without_function,
-        "_sort_links": _sort_links,
-        "_randomize_links": _randomize_links,
-        "urls": urls,
-    }
-
-    return sitemap(
-        data,
-    )
+    if sort_links:
+        all_urls.sort()
+    elif randomize_links:
+        shuffle(all_urls)
+    return all_urls
 
 
 class _Base:
-    def filter(self, *filter_funcs):
+    _filters = {}
+    _extractors = []
+    _sort_links = False
+    _randomize_links = False
+
+    def filter(self, *filter_funcs, **kargs):
+        level = kargs.get("level", 0)
         for func in filter_funcs:
             if callable(func):  # Check if the argument is a function
                 # Raise an exception with a helpful message
@@ -405,11 +382,8 @@ class _Base:
                     f"Kindly check the filter '{func.__name__}' and see if you forgot to call it."
                 )
 
-        self._filters.extend(
-            filter_funcs
-        )  # Extend the _filters list only if all checks pass
-
-        return self  # Allow chaining
+        self._filters[level] = filter_funcs[:]
+        return self
 
     def extract(self, *extractor_funcs):
         for func in extractor_funcs:
@@ -419,11 +393,8 @@ class _Base:
                     f"Kindly check the extractor '{func.__name__}' and see if you forgot to call it."
                 )
 
-        self._extractors.extend(
-            extractor_funcs
-        )  # Extend the _extractors list only if all checks pass
-
-        return self  # Allow chaining for _extractors
+        self._extractors = extractor_funcs[:]
+        return self
 
     def sort(self):
         self._sort_links = True
@@ -437,7 +408,6 @@ class _Base:
 
 
 class Links(_Base):
-
     def __init__(
         self,
         urls,
@@ -452,20 +422,13 @@ class Links(_Base):
         self.urls = urls
 
     def get(self):
-        # This function should be defined or imported in your code
         result = apply_filters_maps_sorts_randomize(
-            {
-                **default_request_options,
-                "parallel": 40,
-                "cache": False,
-            },
             self.urls,
-            self._filters,
+            self._filters.get(0, []),
             self._extractors,
             self._sort_links,
             self._randomize_links,
         )
-
         return result
 
     def write(self, filename: str):
