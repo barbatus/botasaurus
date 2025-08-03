@@ -16,7 +16,7 @@ def _raise_for_status(response):
             if message:
                 raise ApiException(message)
             else:
-                response.raise_for_status()    
+                response.raise_for_status()
         elif 500 <= response.status_code < 600:
             response.raise_for_status()
 
@@ -24,7 +24,7 @@ class Api:
     def __init__(self, api_url: Optional[str] = None, create_response_files: bool = True) -> None:
         """
         Initializes the API client with a specified server URL and an option to create response files.
-        
+
         :param api_url: The base URL for the API server. If not specified, defaults to "http://127.0.0.1:8000".
         :param create_response_files: Indicates if the client should create response files for each API call. This is useful for debugging or development purposes. Defaults to True.
         """
@@ -41,15 +41,15 @@ class Api:
         :param filename: The filename for the JSON file to be created.
         :param data: The data to be written to the file.
         """
-        if self._create_response_files:  
+        if self._create_response_files:
             path = _create_filename(filename)
-            write_json_response(path, data) 
+            write_json_response(path, data)
             print(f"View {filename} response at: ./{path}")
 
     def _make_api_url(self, path):
         return f"{self._api_url}/{path}"
 
-        
+
     def is_api_running(self) -> bool:
         """
         Checks if the API is running by performing a health check on the "/api" endpoint.
@@ -61,7 +61,7 @@ class Api:
             # Check if the response status code is 200 (OK)
             return response.status_code == 200
         except ConnectionError:
-            raise ApiException("""API at {} is not running. 
+            raise ApiException("""API at {} is not running.
 Check the network connection, or verify if the API is running on a different endpoint. In case the API is running on a different endpoint, you can pass the endpoint as follows:
 api = Api('https://example.com')""".format(self._api_url))
 
@@ -159,14 +159,14 @@ api = Api('https://example.com')""".format(self._api_url))
         _raise_for_status(response)
         response_data = response.json()
 
-        if self._create_response_files:  
+        if self._create_response_files:
             has_many_pages = response_data["total_pages"] > 1
 
             filename  = f"get_tasks-page-{page}"  if has_many_pages else "get_tasks"
             msg = f"get_tasks, page {page}"  if has_many_pages  else "get_tasks"
             path = _create_filename(filename)
-            write_json_response(path, response_data) 
-            
+            write_json_response(path, response_data)
+
             print(f"View {msg} response at: ./{path}")
 
         return response_data
@@ -195,7 +195,7 @@ api = Api('https://example.com')""".format(self._api_url))
         :param filters: A dictionary of filters to apply to the task results, optional.
         :param sort: The sort to apply to the task results, optional.
         :param view: The view to apply to the task results, optional.
-        :param page: The page number to retrieve, default is 1. 
+        :param page: The page number to retrieve, default is 1.
         :param per_page: The number of results to return per page. If per_page is not provided, all results are returned, optional.
 
         :return: A dictionary containing the task results and pagination information if page and per_page are provided.
@@ -216,14 +216,14 @@ api = Api('https://example.com')""".format(self._api_url))
         _raise_for_status(response)
         response_data = response.json()
 
-        if self._create_response_files:  
+        if self._create_response_files:
             has_many_pages = response_data["total_pages"] > 1
 
             filename  = f"get_task_results-page-{page}"  if has_many_pages else "get_task_results"
             msg = f"get_task_results, page {page}"  if has_many_pages  else "get_task_results"
             path = _create_filename(filename)
-            write_json_response(path, response_data) 
-            
+            write_json_response(path, response_data)
+
             print(f"View {msg} response at: ./{path}")
 
         return response_data
@@ -251,7 +251,7 @@ api = Api('https://example.com')""".format(self._api_url))
             payload["sort"] = sort
         if view:
             payload["view"] = view
-        
+
         payload["convert_to_english"] = convert_to_english
 
         url = self._make_api_url(f"api/tasks/{task_id}/download")
@@ -261,7 +261,7 @@ api = Api('https://example.com')""".format(self._api_url))
         content = response.content
         filename = get_filename_from_response_headers(response)
         if self._create_response_files:
-            path = write_file_response("output/responses/", filename, content) 
+            path = write_file_response("output/responses/", filename, content)
             print(f"View downloaded file at: ./{path}")
         return content, filename
 

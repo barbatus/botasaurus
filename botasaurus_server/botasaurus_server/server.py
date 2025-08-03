@@ -157,8 +157,6 @@ class _Server:
         scraper_function,
         display_name=None,
         get_task_name=None,
-        create_all_task=False,
-        split_task=None,
         filters=[],
         sorts=[],
         views=[],
@@ -178,11 +176,6 @@ class _Server:
                 f"Invalid scraper type: {scraper_function._scraper_type}. Must be 'browser', 'request' or 'task'."
             )
 
-        if create_all_task and not callable(split_task):
-            raise ValueError(
-                "split_task function must be provided when create_all_task is True."
-            )
-
         if not isinstance(filters, list):
             filters = [filters]
 
@@ -191,11 +184,6 @@ class _Server:
 
         if not isinstance(views, list):
             views = [views]
-
-        # if not create_all_task and remove_duplicates_by:
-        #     raise ValueError(
-        #         "create_all_task must be True when remove_duplicates_by is provided."
-        #     )
 
         # Check for duplicate views
         view_ids = [view.id for view in views]
@@ -252,8 +240,6 @@ class _Server:
             "scraper_name": scraper_function_name,
             "scraper_type": scraper_function._scraper_type,
             "get_task_name": get_task_name,
-            "create_all_task": create_all_task,
-            "split_task": split_task,
             "filters": filters,
             "sorts": sorts,
             "views": views,
@@ -370,30 +356,12 @@ class _Server:
 
     def create_tasks(self, scraper_name, data, metadata):
         scraper = self.scrapers[scraper_name]
-
-        tasks = []
-
-        create_all_tasks = scraper["create_all_task"]
-        split_task = scraper["split_task"]
-
-        if split_task:
-            split_data = split_task(data)
-            for item in split_data:
-                task_name = (
-                    scraper["get_task_name"](item)
-                    if scraper["get_task_name"]
-                    else "Unnamed Task"
-                )
-                tasks.append({"name": task_name, "data": item, "metadata": metadata})
-        else:
-            task_name = (
-                scraper["get_task_name"](data)
-                if scraper["get_task_name"]
-                else "Unnamed Task"
-            )
-            tasks.append({"name": task_name, "data": data, "metadata": metadata})
-
-        return tasks, bool(split_task), create_all_tasks
+        task_name = (
+            scraper["get_task_name"](data)
+            if scraper["get_task_name"]
+            else "Unnamed Task"
+        )
+        return [{"name": task_name, "data": data, "metadata": metadata}]
 
     def get_filters(self, scraper_name):
         return self.scrapers[scraper_name]["filters"]

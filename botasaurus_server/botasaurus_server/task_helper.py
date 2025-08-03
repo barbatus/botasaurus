@@ -162,7 +162,7 @@ class TaskHelper:
 
     @staticmethod
     async def delete_task(
-        session: AsyncSession, task_id: int, is_all_task: bool
+        session: AsyncSession, task_id: int
     ):
         await session.execute(
             delete(Task).where(Task.id == task_id),
@@ -244,7 +244,6 @@ class TaskHelper:
             except_task_id,
             remove_duplicates_by,
         )
-        # TaskResults.save_all_task(parent_id, all_results)
 
         await TaskHelper.update_task(
             session,

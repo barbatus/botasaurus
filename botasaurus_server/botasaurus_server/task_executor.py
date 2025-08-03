@@ -3,7 +3,6 @@ import traceback
 from datetime import datetime
 from typing import Any
 
-from botasaurus.dontcache import is_dont_cache
 from sqlalchemy import and_, delete, or_, select, update
 
 from .cleaners import clean_data
@@ -104,7 +103,6 @@ class TaskExecutor:
                     "status": task.status,
                     "scraper_name": task.scraper_name,
                     "scraper_type": task.scraper_type,
-                    "is_all_task": task.is_all_task,
                     "is_sync": task.is_sync,
                     "parent_task_id": task.parent_task_id,
                     "data": task.data,
@@ -127,66 +125,45 @@ class TaskExecutor:
         exception_log = None
 
         try:
-            try:
-                # Run the (potentially blocking) scraping function in a separate
-                # thread so it does not block the event loop.
-                result = await asyncio.to_thread(
-                    fn,
-                    task_data,
-                    **metadata,
-                    parallel=None,
-                    cache=False,
-                    beep=False,
-                    run_async=False,
-                    async_queue=False,
-                    raise_exception=True,
-                    close_on_crash=True,
-                    output=None,
-                    create_error_logs=False,
-                    return_dont_cache_as_is=True,
-                )
-                if is_dont_cache(result):
-                    is_result_dont_cached = True
-                    # unpack
-                    result = result.data
-                else:
-                    is_result_dont_cached = False
+            result = fn(
+                task_data,
+                **metadata,
+                parallel=None,
+                cache=False,
+                beep=False,
+                run_async=False,
+                async_queue=False,
+                raise_exception=True,
+                close_on_crash=True,
+                output=None,
+                create_error_logs=False,
+                return_dont_cache_as_is=True,
+            )
 
-                result = clean_data(result)
+            result = clean_data(result)
 
-                remove_duplicates_by = Server.get_remove_duplicates_by(scraper_name)
-                if remove_duplicates_by:
-                    result = remove_duplicates_by_key(result, remove_duplicates_by)
+            remove_duplicates_by = Server.get_remove_duplicates_by(scraper_name)
+            if remove_duplicates_by:
+                result = remove_duplicates_by_key(result, remove_duplicates_by)
 
-                if is_result_dont_cached:
-                    await self.mark_task_as_success(
-                        task_id,
-                        result,
-                        False,
-                        scraper_name,
-                        task_data,
-                    )
-                else:
-                    await self.mark_task_as_success(
-                        task_id,
-                        result,
-                        Server.cache,
-                        scraper_name,
-                        task_data,
-                    )
-            except Exception:
-                exception_log = traceback.format_exc()
-                traceback.print_exc()
-                await self.mark_task_as_failure(task_id, exception_log)
-            finally:
-                if parent_task_id:
-                    if exception_log:
-                        self.update_parent_task(task_id, [])
-                    else:
-                        self.update_parent_task(task_id, result)
+            await self.mark_task_as_success(
+                task_id,
+                result,
+                Server.cache,
+                scraper_name,
+                task_data,
+            )
         except Exception as e:
+            exception_log = traceback.format_exc()
             traceback.print_exc()
             print("Error in run_task ", e)
+            await self.mark_task_as_failure(task_id, exception_log)
+        finally:
+            if parent_task_id:
+                if exception_log:
+                    self.update_parent_task(task_id, [])
+                else:
+                    self.update_parent_task(task_id, result)
 
     @retry_on_db_error
     def update_parent_task(self, task_id, result):
@@ -237,34 +214,6 @@ class TaskExecutor:
                     # await TaskHelper.read_clean_save_task(
                     #     parent_id, remove_duplicates_by, status
                     # )
-
-    async def complete_as_much_all_task_as_possible(
-        self, parent_id, remove_duplicates_by
-    ):
-        async with get_async_session() as session:
-            is_done = await TaskHelper.are_all_child_task_done(session, parent_id)
-            if is_done:
-                failed_children_count = await TaskHelper.get_failed_children_count(
-                    session, parent_id
-                )
-                status = (
-                    TaskStatus.FAILED if failed_children_count else TaskStatus.COMPLETED
-                )
-                await TaskHelper.collect_and_save_all_task(
-                    session,
-                    parent_id,
-                    None,
-                    remove_duplicates_by,
-                    status,
-                )
-            else:
-                await TaskHelper.collect_and_save_all_task(
-                    session,
-                    parent_id,
-                    None,
-                    remove_duplicates_by,
-                    TaskStatus.IN_PROGRESS,
-                )
 
     @retry_on_db_error
     async def mark_task_as_failure(self, task_id, exception_log):

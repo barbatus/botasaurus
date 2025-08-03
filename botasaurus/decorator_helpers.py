@@ -4,12 +4,11 @@ import traceback
 from time import sleep, time
 from .utils import is_errors_instance
 
-from .cache import Cache, _get,CacheMissException, _has, _get_cache_path, _create_cache_directory_if_not_exists
-from .dontcache import is_dont_cache
+from .cache import Cache, _get, CacheMissException, _has, _get_cache_path, _create_cache_directory_if_not_exists
 
 def cache(_func=None, *, cache=True):
     def decorator_cache(func):
-        @wraps(func)    
+        @wraps(func)
         def wrapper_cache(*args, **kwargs):
             nonlocal cache
 
@@ -30,13 +29,7 @@ def cache(_func=None, *, cache=True):
                 result = func(*args, **kwargs)
 
                 if cache is True or cache == 'REFRESH':
-                    if is_dont_cache(result):
-                        Cache.delete(func, [args, kwargs])
-                    else:
-                        Cache.put(func, [args, kwargs], result)
-
-                if is_dont_cache(result):
-                    result = result.data
+                    Cache.put(func, [args, kwargs], result)
 
                 return result
 
@@ -48,7 +41,7 @@ def cache(_func=None, *, cache=True):
         return decorator_cache
     else:
         return decorator_cache(_func)
-    
+
 ANY = 'any'
 def retry_if_is_error(instances=ANY, retries=3, wait_time=None, raise_exception=True, on_failed_after_retry_exhausted=None):
     def decorator(func):
@@ -69,7 +62,7 @@ def retry_if_is_error(instances=ANY, retries=3, wait_time=None, raise_exception=
 
                         if not is_valid_error:
                             raise e
-                        
+
                     if raise_exception:
                         traceback.print_exc()
 

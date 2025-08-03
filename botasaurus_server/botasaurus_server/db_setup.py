@@ -97,7 +97,11 @@ db_url = (
     else get_sqlite_url()
 )
 Server._is_database_initialized = True
-engine = create_engine(db_url, **(Server.database_options or {}))
+engine = create_engine(db_url, **(Server.database_options or {
+    "pool_size": 0,
+    "max_overflow": 0,
+    "pool_pre_ping": True,
+}))
 
 Session = sessionmaker(bind=engine)
 

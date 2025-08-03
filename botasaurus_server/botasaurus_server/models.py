@@ -68,7 +68,6 @@ def serialize_ui_output_task(obj, _):
         "status": obj.status,
         "task_name": create_task_name(obj.task_name, task_id),
         "result_count": obj.result_count,
-        "is_all_task": obj.is_all_task,
         "started_at": isoformat(obj.started_at),
         "finished_at": isoformat(obj.finished_at),
     }
@@ -89,7 +88,6 @@ def serialize_task(obj, with_result):
         "task_name": create_task_name(obj.task_name, obj.id),
         "scraper_name": obj.scraper_name,
         "scraper_type": obj.scraper_type,
-        "is_all_task": obj.is_all_task,
         "is_sync": obj.is_sync,
         "parent_task_id": obj.parent_task_id,
         "duration": calculate_duration(obj),
@@ -118,7 +116,6 @@ class Task(Base):
     task_name = Column(String, index=True)
     scraper_name = Column(String, index=True)
     scraper_type = Column(String, index=True)
-    is_all_task = Column(Boolean, index=True)
     is_sync = Column(Boolean, index=True)  # Indexed column with default value False
 
     # Parent task relationship (optional)
@@ -135,7 +132,7 @@ class Task(Base):
     )  # Integer field for storing result count, default 0
 
     result = Column(JSON, nullable=True)
-    cached_key = Column(String, nullable=True)
+    cached_key = Column(String, nullable=True, index=True)
 
     # Timestamps
     created_at = Column(DateTime, server_default=func.now())

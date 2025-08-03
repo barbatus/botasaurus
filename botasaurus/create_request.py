@@ -5,8 +5,8 @@ def create_request(proxy=None,  user_agent=None):
             proxy,
             user_agent
         )
-    
+
     if proxy is not None:
         reqs.proxy =  proxy
-        
+
     return reqs

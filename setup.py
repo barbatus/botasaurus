@@ -1,7 +1,7 @@
 from setuptools import setup
 
 install_requires = [
-    "psutil",    
+    "psutil",
     "javascript_fixes",
     "requests",
     "joblib>=1.3.2",
@@ -27,8 +27,9 @@ def get_description():
         with open("README.md", encoding="utf-8") as readme_file:
             long_description = readme_file.read()
         return long_description
-    except:
+    except Exception:
         return None
+
 
 setup(
     name="botasaurus",

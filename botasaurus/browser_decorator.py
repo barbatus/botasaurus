@@ -15,7 +15,6 @@ from botasaurus.decorators_common import (
     write_output,
 )
 
-from .dontcache import is_dont_cache
 from .list_utils import flatten
 from .utils import NotFoundException, is_errors_instance
 
@@ -276,14 +275,7 @@ def browser(
                         close_driver(driver)
 
                     if cache is True or cache == "REFRESH":
-                        if is_dont_cache(result):
-                            _remove(path)
-                        else:
-                            _put(result, path)
-
-                    if is_dont_cache(result):
-                        if not return_dont_cache_as_is:
-                            result = result.data
+                        _put(result, path)
 
                     return result
                 except Exception as error:

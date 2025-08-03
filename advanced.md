@@ -136,11 +136,11 @@ Also, you can add a lot of other filters as shown below:
   filters.IsNotNullCheckbox("description")
   ```
 
-- **SingleSelectDropdown**: Allows the user to select a single option from a dropdown list. 
+- **SingleSelectDropdown**: Allows the user to select a single option from a dropdown list.
 
 The selected option is matched against the target field, which can be:
 
-- a string  
+- a string
 - or a list of strings
 
 If the target field is a list of strings, it checks if the `selected option` is one of the values in that list.
@@ -171,7 +171,7 @@ filters.SingleSelectDropdown(
     - If the user selects No, the component displays items where the target value is Falsy.
   ```python
   filters.BoolSelectDropdown("is_available")
-  ```    
+  ```
 - **SearchTextInput**: Show items where the target field contains the `search` term.
   ```python
   filters.SearchTextInput("name")
@@ -180,7 +180,7 @@ Note: When you make any changes to the filters, sorts, or views, you need to sto
 
 ### How can I allow the user to sort the scraped data?
 
-To do so, similar to filters, you need to specify sorts when adding the Scraper in `backend/scrapers.py`. 
+To do so, similar to filters, you need to specify sorts when adding the Scraper in `backend/scrapers.py`.
 
 Below is an example illustrating how to add the following sorts:
 
@@ -495,7 +495,7 @@ ExpandListField(
 
 ### When creating large datasets, customers often request data in different formats like overview and review. How can I do that?
 
-When building big datasets, customers will likely request the data in different formats, such as an overview view or a review view. 
+When building big datasets, customers will likely request the data in different formats, such as an overview view or a review view.
 
 Now to meet this requirement, instead of manually picking and flattening fields, you can apply pre-defined views to the data. Here's an example:
 
@@ -512,7 +512,7 @@ products = [
         "reviews": 1000,
         "reviews_per_rating": {
             "1": 0,
-            "2": 0, 
+            "2": 0,
             "3": 0,
             "4": 100,
             "5": 900,
@@ -598,7 +598,7 @@ def write_output(input_data, result):
     bt.write_excel(overview_view.apply(result), 'overview')
     bt.write_json(result, 'products')
 
-@task(output=write_output)  
+@task(output=write_output)
 def scrape_product_data(data):
     return products
 
@@ -674,7 +674,7 @@ def write_output(input_data, result):
     bt.write_json(sort.apply(result), 'sorted')
     bt.write_json(result, 'products')
 
-@task(output=write_output)  
+@task(output=write_output)
 def scrape_product_data(data):
     return products
 
@@ -687,13 +687,13 @@ scrape_product_data()
 
 You can further customize your scraper with the following options:
 - `get_task_name`
-- `create_all_task` 
+- `create_all_task`
 - `split_task`
 
 Let's explore each of these options in detail:
 
 #### `get_task_name`
-By default, the task name shown on the `output` page is generated based on the task id. 
+By default, the task name shown on the `output` page is generated based on the task id.
 ![](https://raw.githubusercontent.com/omkarcloud/botasaurus/master/images/task-name.png)
 
 However, you can use `get_task_name` to generate a custom task name based on your input data as follows:
@@ -702,7 +702,7 @@ from botasaurus_server.server import Server
 
 def get_task_name(data):
     return data["link"]
-  
+
 Server.add_scraper(
     scrape_product_data,
     get_task_name=get_task_name,
@@ -780,7 +780,7 @@ Server.configure(
 
 By default, UI Scraper uses an SQLite database, which is suitable for small applications and running the scraper locally.
 
-However, for applications that store large datasets and handle concurrency, it is recommended to use PostgreSQL. 
+However, for applications that store large datasets and handle concurrency, it is recommended to use PostgreSQL.
 
 Follow these steps, to use PostgreSQL with UI Scraper:
 

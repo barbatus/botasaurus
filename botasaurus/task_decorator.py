@@ -13,7 +13,6 @@ from botasaurus.decorators_common import (
 )
 
 from .beep_utils import beep_input
-from .dontcache import is_dont_cache
 from .list_utils import flatten
 from .utils import NotFoundException, is_errors_instance
 
@@ -113,14 +112,8 @@ def task(
                     else:
                         result = func(data)
                     if cache is True or cache == "REFRESH":
-                        if is_dont_cache(result):
-                            _remove(path)
-                        else:
-                            _put(result, path)
+                        _put(result, path)
 
-                    if is_dont_cache(result):
-                        if not return_dont_cache_as_is:
-                            result = result.data
                     return result
                 except Exception as error:
                     if isinstance(error, KeyboardInterrupt):
