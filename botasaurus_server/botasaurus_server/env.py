@@ -10,11 +10,11 @@ def _is_docker():
     if is_mac:
         return False
     is_windows =  name == 'nt'
-    
+
     # Easly exit
     if is_windows:
         return False
-    
+
     # Expensive Checks
     return path.exists('/.dockerenv') or path.isfile('/proc/self/cgroup') and 'docker' in open('/proc/self/cgroup').read() or is_in_kubernetes
 

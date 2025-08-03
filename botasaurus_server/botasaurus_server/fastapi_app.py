@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from botasaurus.links import Filters
-from botasaurus.sitemap import Sitemap
 from fastapi import FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel, Field
+
+from botasaurus.links import Filters
+from botasaurus.sitemap import Sitemap
 
 from .env import is_master
 from .routes_db_logic import (

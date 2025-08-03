@@ -1,12 +1,12 @@
 import uvicorn
 from celery.apps.worker import Worker
 
-from .env import is_in_kubernetes
+# from .env import is_in_kubernetes
 from .fastapi_app import app as fastapi_app
 
 
 def run_server():
-    host = "0.0.0.0" if is_in_kubernetes else "127.0.0.1"
+    host = "0.0.0.0"
 
     uvicorn.run(fastapi_app, host=host, port=8000, log_level="info")
 
