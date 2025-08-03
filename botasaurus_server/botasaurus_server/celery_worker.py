@@ -4,8 +4,8 @@ from .server import Server
 
 celery_app = Celery(
     "worker",
-    broker="redis://host.minikube.internal:6379/0",
-    backend="redis://host.minikube.internal:6379/0",
+    broker="redis://host.docker.internal:6379/0",
+    backend="redis://host.docker.internal:6379/0",
 )
 
 celery_app.conf.update(

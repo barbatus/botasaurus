@@ -1,8 +1,8 @@
 import subprocess
 import sys
 import threading
-from os import getcwd, makedirs, path
 from contextlib import asynccontextmanager
+from os import getcwd, makedirs, path
 
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import (
@@ -13,13 +13,8 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import sessionmaker
 
 from .env import is_master
-from .models import Base
 from .server import Server
-from .utils import (
-    path_task_results,
-    path_task_results_cache,
-    path_task_results_tasks
-)
+from .utils import path_task_results, path_task_results_cache, path_task_results_tasks
 
 
 def install(package):
@@ -91,17 +86,20 @@ ensure_directory_exists(path_task_results)
 ensure_directory_exists(path_task_results_tasks)
 ensure_directory_exists(path_task_results_cache)
 
-db_url = (
-    clean_database_url(Server.database_url)
-    if Server.database_url
-    else get_sqlite_url()
-)
+clean_database_url("postgresql://postgres:pgpassword@host.docker.internal:5432/zysk")
+db_url = "postgresql://postgres:pgpassword@host.docker.internal:5432/zysk"
 Server._is_database_initialized = True
-engine = create_engine(db_url, **(Server.database_options or {
-    "pool_size": 0,
-    "max_overflow": 0,
-    "pool_pre_ping": True,
-}))
+engine = create_engine(
+    db_url,
+    **(
+        Server.database_options
+        or {
+            "pool_size": 0,
+            "max_overflow": 0,
+            "pool_pre_ping": True,
+        }
+    ),
+)
 
 Session = sessionmaker(bind=engine)
 
@@ -125,7 +123,7 @@ thread_local = threading.local()
 
 
 def create_async_session_maker():
-    if not hasattr(thread_local, 'async_engine'):
+    if not hasattr(thread_local, "async_engine"):
         thread_local.async_engine = create_async_engine(
             async_db_url,
             **(Server.database_options or {}),
@@ -147,9 +145,9 @@ async def get_async_session():
         yield session
 
 
-def create_database():
-    """Creates all tables in the database engine."""
-    Base.metadata.create_all(engine)
+# def create_database():
+#     """Creates all tables in the database engine."""
+#     Base.metadata.create_all(engine)
 
 
-create_database()
+# create_database()
