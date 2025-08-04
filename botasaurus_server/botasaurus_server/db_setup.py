@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import sessionmaker
 
 from .env import is_master
+from .models import Base
 from .server import Server
 from .utils import path_task_results, path_task_results_cache, path_task_results_tasks
 
@@ -145,9 +146,9 @@ async def get_async_session():
         yield session
 
 
-# def create_database():
-#     """Creates all tables in the database engine."""
-#     Base.metadata.create_all(engine)
+def create_database():
+    """Creates all tables in the database engine."""
+    Base.metadata.create_all(engine)
 
 
-# create_database()
+create_database()

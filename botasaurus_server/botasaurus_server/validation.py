@@ -100,18 +100,7 @@ def validate_task_request(json_data):
     if not isinstance(data, dict):
         raise JsonHTTPResponseWithMessage("'data' key must be a valid JSON object")
 
-    controls = Server.get_controls(scraper_name)
-
-    result = controls.getBackendValidationResult(data, timeout=300).valueOf()
-
-    errors = result["errors"]
-
-    if errors != {}:
-        raise JsonHTTPResponseWithMessage(dict_to_string(errors))
-
-    data = result["data"]
-    metadata = result["metadata"]
-    return scraper_name, data, metadata
+    return scraper_name, data, {}
 
 
 def is_valid_positive_integer(param):
