@@ -7,15 +7,13 @@ celery_app = Celery(
 )
 
 celery_app.conf.update(
-    worker_concurrency=5,
-    worker_prefetch_multiplier=1,
     task_always_eager=False,
     task_ignore_result=False,
     task_acks_late=True,
     task_reject_on_worker_lost=True,
-    task_soft_time_limit=840,
-    task_time_limit=900,
-    worker_pool="threads",
+    task_soft_time_limit=480,
+    task_time_limit=600,
+    worker_pool="prefork",
     result_expires=3600,
     max_tasks_per_child=50,
     health_check_interval=60,
