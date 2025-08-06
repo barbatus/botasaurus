@@ -67,8 +67,6 @@ def task(
             output_formats = kwargs.get("output_formats", output_formats)
             max_retry = kwargs.get("max_retry", max_retry)
             retry_wait = kwargs.get("retry_wait", retry_wait)
-            # A Special Option passed by botasaurus server which prevents caching at database level
-            return_dont_cache_as_is = kwargs.get("return_dont_cache_as_is", False)
             must_raise_exceptions = kwargs.get(
                 "must_raise_exceptions", must_raise_exceptions
             )

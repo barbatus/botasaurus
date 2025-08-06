@@ -18,5 +18,7 @@ def run_worker():
         app=celery_app,
         loglevel="INFO",
         traceback=True,
+        pool="prefork",
+        autoscale="4,1",
     )
     worker_instance.start()
