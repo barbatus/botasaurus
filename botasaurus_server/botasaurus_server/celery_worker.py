@@ -7,7 +7,7 @@ celery_app = Celery(
 )
 
 celery_app.conf.update(
-    worker_concurrency=5,
+    worker_concurrency=3,
     worker_prefetch_multiplier=1,
     task_always_eager=False,
     task_ignore_result=False,
@@ -18,4 +18,5 @@ celery_app.conf.update(
     worker_pool="prefork",
     result_expires=3600,
     max_tasks_per_child=50,
+    health_check_interval=30,
 )
