@@ -110,6 +110,7 @@ _ensure_async_drivers(async_db_url)
 async_engine = create_async_engine(
     async_db_url,
     **(Server.database_options or {}),
+    connect_args={"ssl": True},
 )
 
 AsyncSessionMaker = async_sessionmaker(
