@@ -15,6 +15,7 @@ install_requires = [
     "python-dotenv",
     "asyncpg",
     "celery[redis]",
+    "psycopg2-binary",
 ]
 
 extras_require = {}
@@ -31,7 +32,7 @@ def get_description():
 
 setup(
     name="botasaurus_server",
-    version='4.0.60',
+    version="4.0.60",
     author="Chetan Jain",
     author_email="53407137+Chetan11-dev@users.noreply.github.com",
     description="Botasaurus Server allows you to transform your scrapers into APIs or scale them using Kubernetes.",

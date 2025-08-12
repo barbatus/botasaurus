@@ -87,8 +87,7 @@ ensure_directory_exists(path_task_results)
 ensure_directory_exists(path_task_results_tasks)
 ensure_directory_exists(path_task_results_cache)
 
-clean_database_url("postgresql://postgres:pgpassword@host.docker.internal:5432/zysk")
-db_url = "postgresql://postgres:pgpassword@host.docker.internal:5432/zysk"
+db_url = Server.database_url
 Server._is_database_initialized = True
 engine = create_engine(
     db_url,
