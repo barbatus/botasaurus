@@ -42,7 +42,6 @@ def browser(
     data: Optional[Union[Callable[[], Any], Any]] = None,
     metadata: Optional[Any] = None,
     parallel: Optional[Union[Callable[[Any], int], int]] = None,
-    cache: Union[bool, str] = False,
     block_images: bool = False,
     block_images_and_css: bool = False,
     window_size: Optional[Union[Callable[[Any], str], str]] = None,
@@ -85,7 +84,6 @@ def browser(
             nonlocal \
                 parallel, \
                 data, \
-                cache, \
                 block_images_and_css, \
                 block_images, \
                 window_size, \
@@ -119,7 +117,6 @@ def browser(
 
             parallel = kwargs.get("parallel", parallel)
             data = kwargs.get("data", data)
-            cache = kwargs.get("cache", cache)
             block_images = kwargs.get("block_images", block_images)
             block_images_and_css = kwargs.get(
                 "block_images_and_css", block_images_and_css
@@ -163,17 +160,6 @@ def browser(
             fn_name = func.__name__
             last_error: Exception = None
 
-            if cache:
-                from .cache import (
-                    CacheMissException,
-                    _create_cache_directory_if_not_exists,
-                    _get,
-                    _get_cache_path,
-                    _has,
-                    _put,
-                )
-
-                _create_cache_directory_if_not_exists(func)
             if isinstance(proxy, list):
                 from itertools import cycle
 
@@ -185,16 +171,6 @@ def browser(
 
             def run_task(data, retry_attempt, retry_driver=None) -> Any:
                 nonlocal last_error
-
-                if cache is True:
-                    path = _get_cache_path(func, data)
-                    if _has(path):
-                        try:
-                            return _get(path)
-                        except CacheMissException:
-                            pass
-                elif cache == "REFRESH":
-                    path = _get_cache_path(func, data)
 
                 evaluated_window_size = (
                     window_size(data) if callable(window_size) else window_size
@@ -271,9 +247,6 @@ def browser(
                     else:
                         close_driver(driver)
 
-                    if cache is True or cache == "REFRESH":
-                        _put(result, path)
-
                     return result
                 except Exception as error:
                     if isinstance(error, KeyboardInterrupt):
@@ -322,10 +295,6 @@ def browser(
                                 "We've paused the browser to help you debug. Press 'Enter' to close."
                             )
 
-                    # if reuse_driver:
-                    #     driver.is_new = False
-                    #     _driver_pool.append(driver)  # Add back to the pool for reuse
-                    # else:
                     close_driver(driver)
 
                     if raise_exception:

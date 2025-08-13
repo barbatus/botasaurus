@@ -1,9 +1,14 @@
+import os
+
 from celery import Celery
+from dotenv import load_dotenv
+
+load_dotenv()
 
 celery_app = Celery(
     "worker",
-    broker="redis://host.docker.internal:6379/0",
-    backend="redis://host.docker.internal:6379/0",
+    broker=os.getenv("REDIS_URL"),
+    backend=os.getenv("REDIS_URL"),
 )
 
 celery_app.conf.update(
