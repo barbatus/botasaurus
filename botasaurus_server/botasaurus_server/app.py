@@ -19,6 +19,6 @@ def run_worker():
         loglevel="INFO",
         traceback=True,
         pool="prefork",
-        autoscale="5,1",
+        autoscale="5,3",
     )
     worker_instance.start()

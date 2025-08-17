@@ -22,6 +22,7 @@ celery_app.conf.update(
     result_expires=3600,
     worker_max_tasks_per_child=50,
     redis_backend_health_check_interval=60,
+    worker_enable_remote_control=False,
     worker_prefetch_multiplier=1,
     broker_transport_options={
         "visibility_timeout": 7200,
