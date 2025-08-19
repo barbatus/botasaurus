@@ -333,7 +333,7 @@ class Extractors:
 
 
 def apply_filters_maps_sorts_randomize(
-    urls,
+    urls: list[str],
     filters,
     extractors=[],
     sort_links=False,

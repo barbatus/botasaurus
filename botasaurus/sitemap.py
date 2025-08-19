@@ -1,4 +1,4 @@
-from typing import List
+from datetime import datetime
 
 from .links import (
     _Base,
@@ -9,6 +9,7 @@ from .list_utils import flatten
 from .output import write_json
 from .request_decorator import request
 from .sitemap_parser_utils import (
+    SitemapUrl,
     clean_robots_txt_url,
     clean_sitemap_url,
     extract_sitemaps,
@@ -36,16 +37,25 @@ def fetch_content(req, url: str):
 
 
 class Sitemap(_Base):
-    def __init__(self, urls: list[str], cache=True, proxy=None, parallel=40):
+    def __init__(self, urls: list[str], cache=True, proxy=None):
         self.cache = cache
         self.proxy = proxy
-        self.parallel = parallel
         self.urls = urls if isinstance(urls, list) else [urls]
 
-    def links(self) -> List[str]:
+    def links(
+        self,
+        since: datetime | None = None,
+        to: datetime | None = None,
+    ) -> list[str]:
         request_options = self._create_request_options()
 
         urls = self._get_urls(request_options, self.urls)
+        urls = [
+            url["loc"]
+            for url in urls
+            if (since and url["lastmod"] and url["lastmod"] >= since or not since)
+            and (to and url["lastmod"] and url["lastmod"] <= to or not to)
+        ]
         result = apply_filters_maps_sorts_randomize(
             urls,
             self._filters.get(0, []),
@@ -76,8 +86,9 @@ class Sitemap(_Base):
     def _create_request_options(self):
         options = {
             **default_request_options,
-            "parallel": self.parallel,
             "cache": self.cache,
+            "raise_exception": True,
+            "max_retry": 5,
         }
         options["proxy"] = self.proxy
         return options
@@ -99,10 +110,10 @@ class Sitemap(_Base):
             if not content:
                 return []
 
-            locs = extract_sitemaps(content)
+            urls = extract_sitemaps(content)
             level = data.get("level", 0)
             result = apply_filters_maps_sorts_randomize(
-                locs,
+                [url["loc"] for url in urls],
                 self._filters.get(level, []),
             )
             child_sitemaps = (
@@ -151,7 +162,7 @@ class Sitemap(_Base):
             for url in urls
         )
 
-    def _get_urls(self, request_options, urls):
+    def _get_urls(self, request_options, urls) -> list[SitemapUrl]:
         visited = set()
 
         @request(**request_options)

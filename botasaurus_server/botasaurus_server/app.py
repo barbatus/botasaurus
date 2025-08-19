@@ -1,17 +1,17 @@
-import uvicorn
-from celery.apps.worker import Worker
-
 # from .env import is_in_kubernetes
-from .fastapi_app import app as fastapi_app
 
 
 def run_server():
-    host = "0.0.0.0"
+    import uvicorn
 
-    uvicorn.run(fastapi_app, host=host, port=8000, log_level="info")
+    from .fastapi_app import app as fastapi_app
+
+    uvicorn.run(fastapi_app, host="0.0.0.0", port=8000, log_level="info")
 
 
 def run_worker():
+    from celery.apps.worker import Worker
+
     from .celery_worker import celery_app
 
     worker_instance = Worker(

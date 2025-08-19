@@ -24,7 +24,7 @@ def get_directory_path(file_path):
 def write_json(data, path):
     try:
         with open(path, "w", encoding="utf-8") as fp:
-            json.dump(data, fp)
+            json.dump(data, fp, default=str)
     except FileNotFoundError:
         create_directory_if_not_exists(get_directory_path(path))
         return write_json(data, path)

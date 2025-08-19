@@ -1,5 +1,7 @@
 import re
+from datetime import datetime
 from gzip import decompress
+from typing import TypedDict
 from urllib.parse import unquote_plus, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
@@ -105,34 +107,60 @@ def fix_bad_sitemap_response(s, char="<"):
     return s[char_index:]
 
 
-def extract_sitemaps(content):
+class SitemapUrl(TypedDict):
+    loc: str
+    lastmod: datetime | None
+
+
+def extract_sitemaps(content) -> list[SitemapUrl]:
     root = BeautifulSoup(content, "lxml-xml")
 
     locs = []
-    # Look for sitemap entries, which indicate nested sitemaps
     for sm in root.select("sitemap"):
-        el = sm.select_one("loc")
-        if el is not None:
-            locs.append(el.text.strip())
+        loc = sm.select_one("loc")
+        lastmod = sm.select_one("lastmod")
+        if loc is not None:
+            locs.append(
+                {
+                    "loc": loc.text.strip(),
+                    "lastmod": datetime.fromisoformat(lastmod.text.strip())
+                    if lastmod
+                    else None,
+                }
+            )
 
     return locs
 
 
-def split_into_links_and_sitemaps(content):
+def split_into_links_and_sitemaps(content) -> tuple[list[SitemapUrl], list[SitemapUrl]]:
     root = BeautifulSoup(content, "lxml-xml")
 
-    links = []
-    # Look for URL entries, which indicate actual page links
+    links: list[SitemapUrl] = []
     for url_entry in root.select("url"):
         loc = url_entry.select_one("loc")
+        lastmod = url_entry.select_one("lastmod")
         if loc is not None:
-            links.append(loc.text.strip())
-    # Look for sitemap entries, which indicate nested sitemaps
-    locs = []
+            links.append(
+                {
+                    "loc": loc.text.strip(),
+                    "lastmod": datetime.fromisoformat(lastmod.text.strip())
+                    if lastmod
+                    else None,
+                }
+            )
+    locs: list[SitemapUrl] = []
     for sm in root.select("sitemap"):
-        el = sm.select_one("loc")
-        if el is not None:
-            locs.append(el.text.strip())
+        loc = sm.select_one("loc")
+        lastmod = sm.select_one("lastmod")
+        if loc is not None:
+            locs.append(
+                {
+                    "loc": loc.text.strip(),
+                    "lastmod": datetime.fromisoformat(lastmod.text.strip())
+                    if lastmod
+                    else None,
+                }
+            )
 
     return links, locs
 

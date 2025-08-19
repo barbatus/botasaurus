@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, Query, Request
@@ -208,44 +209,58 @@ class SitemapFilter(BaseModel):
 
 class LinkFilter(BaseModel):
     segment: str
-    level: int
+    isFirst: bool
+
+
+class Filter(BaseModel):
+    sitemaps: list[SitemapFilter] = Field(default_factory=list)
+    links: list[LinkFilter] = Field(default_factory=list)
 
 
 class SitemapRequest(BaseModel):
     domain: str
-    sitemaps: list[SitemapFilter] = Field(default_factory=list)
-    links: list[LinkFilter] = Field(default_factory=list)
+    filters: list[Filter] = Field(default_factory=list)
+    since: datetime | None = Field(default=None, alias="from")
+    to: datetime | None = Field(default=None, alias="to")
 
 
 @app.post("/api/sitemaps/links", response_model=list[str])
 async def get_sitemap_links(body: SitemapRequest) -> list[str]:
     domain = body.domain
-    sitemap_filters = body.sitemaps
-    link_filters = body.links
+    since = body.since
+    to = body.to
 
-    def convert_filters(filters: list[SitemapFilter | LinkFilter], level: int):
-        return (
-            Filters.first_segment_equals(filter.segment)
-            if filter.isFirst
-            else Filters.last_segment_equals(filter.segment)
-            for filter in filters
-            if filter.level == level
+    result: list[str] = []
+
+    for filter in body.filters:
+        sitemap_filters = filter.sitemaps
+        link_filters = filter.links
+
+        def convert_filters(filters: list[SitemapFilter | LinkFilter], level: int):
+            return (
+                Filters.first_segment_equals(filter.segment)
+                if filter.isFirst
+                else Filters.last_segment_equals(filter.segment)
+                for filter in filters
+                if isinstance(filter, LinkFilter) or filter.level == level
+            )
+
+        sitemaps_first_level = convert_filters(sitemap_filters, 0)
+        sitemaps_second_level = convert_filters(sitemap_filters, 1)
+        links_first_level = convert_filters(link_filters, 0)
+
+        sitemap_links = (
+            Sitemap(
+                domain,
+                cache="REFRESH",
+                proxy=Server.proxy_url,
+            )
+            .filter(*sitemaps_first_level, level=0)
+            .filter(*sitemaps_second_level, level=1)
+            .sitemaps()
+            .filter(*links_first_level, level=0)
+            .links(since=since, to=to)
         )
+        result.extend(sitemap_links)
 
-    sitemaps_first_level = convert_filters(sitemap_filters, 0)
-    sitemaps_second_level = convert_filters(sitemap_filters, 1)
-    links_first_level = convert_filters(link_filters, 0)
-
-    sitemap_links = (
-        Sitemap(
-            domain,
-            cache="REFRESH",
-            proxy=Server.proxy_url,
-        )
-        .filter(*sitemaps_first_level, level=0)
-        .filter(*sitemaps_second_level, level=1)
-        .sitemaps()
-        .filter(*links_first_level, level=0)
-        .links()
-    )
-    return jsonify(sitemap_links)
+    return jsonify(result)
