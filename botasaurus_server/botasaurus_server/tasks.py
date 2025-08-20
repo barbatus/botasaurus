@@ -3,9 +3,6 @@ import asyncio
 from .celery_worker import celery_app
 from .task_executor import TaskExecutor
 
-# Remove the global executor instance
-# executor = TaskExecutor()
-
 
 def get_or_create_event_loop():
     try:
