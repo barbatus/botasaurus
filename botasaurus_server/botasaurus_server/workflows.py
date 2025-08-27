@@ -1,14 +1,14 @@
-import asyncio
 from datetime import timedelta
 
 from temporalio import common, workflow
 
 with workflow.unsafe.imports_passed_through():
     from .activities import run_scraper
+    from .utils import execute_concurrently_stat
 
 
 activity_timeout = timedelta(seconds=300)
-heartbeat_timeout = timedelta(seconds=60)
+# heartbeat_timeout = timedelta(seconds=60)
 retry_policy = common.RetryPolicy(
     maximum_attempts=1,
     initial_interval=timedelta(milliseconds=1),
@@ -28,15 +28,15 @@ class ScrapeWorkflow:
         activities: workflow.ActivityHandle[None] = []
         for task_id in task_ids:
             activities.append(
-                workflow.start_activity(
+                workflow.execute_activity(
                     run_scraper,
                     args=[task_id],
                     start_to_close_timeout=activity_timeout,
-                    heartbeat_timeout=heartbeat_timeout,
+                    # heartbeat_timeout=heartbeat_timeout,
                     retry_policy=retry_policy,
                 )
             )
-        await asyncio.gather(*activities)
+        await execute_concurrently_stat(activities)
 
 
 scraper_workflows = [ScrapeWorkflow]
