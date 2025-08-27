@@ -3,7 +3,6 @@ from traceback import format_exc, print_exc
 from typing import Any, Callable, List, Optional, Union
 
 from botasaurus.decorators_common import (
-    IS_PRODUCTION,
     AsyncQueueResult,
     AsyncResult,
     evaluate_proxy,
@@ -13,7 +12,6 @@ from botasaurus.decorators_common import (
     write_output,
 )
 
-from .beep_utils import beep_input
 from .create_request import create_request
 from .list_utils import flatten
 from .utils import NotFoundException, is_errors_instance
@@ -45,7 +43,7 @@ def request(
             func._scraper_type = "request"
 
         @wraps(func)
-        def wrapper_requests(*args, **kwargs) -> Any:
+        async def wrapper_requests(*args, **kwargs) -> Any:
             print_running()
             nonlocal parallel, data, cache, beep, run_async, async_queue, metadata
             nonlocal \
@@ -100,7 +98,7 @@ def request(
             else:
                 cycled_proxy = None
 
-            def run_task(
+            async def run_task(
                 data,
                 retry_attempt,
             ) -> Any:
@@ -129,9 +127,9 @@ def request(
                 result = None
                 try:
                     if "metadata" in kwargs or metadata is not None:
-                        result = func(reqs, data, metadata)
+                        result = await func(reqs, data, metadata)
                     else:
-                        result = func(reqs, data)
+                        result = await func(reqs, data)
                     if cache is True or cache == "REFRESH":
                         _put(result, path)
 
@@ -158,7 +156,7 @@ def request(
 
                             print("Waiting for " + str(retry_wait) + " seconds")
                             sleep(retry_wait)
-                        return run_task(data, retry_attempt + 1)
+                        return await run_task(data, retry_attempt + 1)
 
                     if not raise_exception:
                         print_exc()
@@ -166,15 +164,6 @@ def request(
                     print("Task failed for input:", data)
                     if create_error_logs:
                         save_error_logs(format_exc(), None)
-                    if not IS_PRODUCTION:
-                        if not close_on_crash:
-                            if raise_exception:
-                                print_exc()
-
-                            beep_input(
-                                "We've paused the browser to help you debug. Press 'Enter' to close.",
-                                beep,
-                            )
 
                     if raise_exception:
                         raise error
@@ -202,18 +191,18 @@ def request(
             if n <= 1:
                 for index in range(len(used_data)):
                     data_item = used_data[index]
-                    current_result = run_task(data_item, 0)
+                    current_result = await run_task(data_item, 0)
                     result.append(current_result)
             else:
 
-                def run(data_item):
-                    current_result = run_task(data_item, 0)
+                async def run(data_item):
+                    current_result = await run_task(data_item, 0)
                     return current_result
 
                 if callable(parallel):
                     print(f"Running {n} Requests in Parallel")
 
-                result = run_parallel(run, used_data, n, True)
+                result = await run_parallel(run, used_data, n, True)
 
             if not isinstance(orginal_data, list):
                 if not async_queue:

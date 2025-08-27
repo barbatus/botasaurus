@@ -1,4 +1,7 @@
+import asyncio
 from datetime import datetime
+
+from botasaurus_requests.request_class import Request
 
 from .links import (
     _Base,
@@ -30,31 +33,33 @@ default_request_options = {
 }
 
 
-def fetch_content(req, url: str):
+async def fetch_content(req: Request, url: str):
     """Fetch content from a URL, handling gzip if necessary."""
-    response = req.get(url, timeout=300)
+    response = await asyncio.to_thread(req.get, url, timeout=300)
     return fix_gzip_response(url, response)
 
 
 class Sitemap(_Base):
     def __init__(self, urls: list[str], cache=True, proxy=None):
         self.cache = cache
-        self.proxy = proxy
+        self.proxy = None
         self.urls = urls if isinstance(urls, list) else [urls]
 
-    def links(
+    async def links(
         self,
         since: datetime | None = None,
         to: datetime | None = None,
     ) -> list[str]:
         request_options = self._create_request_options()
 
-        urls = self._get_urls(request_options, self.urls)
+        urls = await self._get_urls(request_options, self.urls)
         urls = [
             url["loc"]
             for url in urls
-            if (since and url["lastmod"] and url["lastmod"] >= since or not since)
-            and (to and url["lastmod"] and url["lastmod"] <= to or not to)
+            if (
+                (since and url["lastmod"] and url["lastmod"] >= since or not since)
+                and (to and url["lastmod"] and url["lastmod"] <= to or not to)
+            )
         ]
         result = apply_filters_maps_sorts_randomize(
             urls,
@@ -65,11 +70,11 @@ class Sitemap(_Base):
         )
         return result
 
-    def sitemaps(self) -> "Sitemap":
+    async def sitemaps(self) -> "Sitemap":
         request_options = self._create_request_options()
 
-        self.urls = self._get_sitemaps_from_robots(request_options, self.urls)
-        self.urls = self._get_sitemaps_urls(request_options, self.urls)
+        self.urls = await self._get_sitemaps_from_robots(request_options, self.urls)
+        self.urls = await self._get_sitemaps_urls(request_options, self.urls)
 
         return self
 
@@ -89,15 +94,15 @@ class Sitemap(_Base):
             "cache": self.cache,
             "raise_exception": True,
             "max_retry": 5,
+            "proxy": self.proxy,
         }
-        options["proxy"] = self.proxy
         return options
 
-    def _get_sitemaps_urls(self, request_options, urls):
+    async def _get_sitemaps_urls(self, request_options, urls):
         visited = set()
 
         @request(**request_options)
-        def sitemap(req, data):
+        async def sitemap(req, data):
             nonlocal visited
 
             url = data.get("url")
@@ -106,7 +111,7 @@ class Sitemap(_Base):
 
             visited.add(url)
             print(f"Visiting sitemap {url}")
-            content = fix_bad_sitemap_response(fetch_content(req, url))
+            content = fix_bad_sitemap_response(await fetch_content(req, url))
             if not content:
                 return []
 
@@ -117,29 +122,29 @@ class Sitemap(_Base):
                 self._filters.get(level, []),
             )
             child_sitemaps = (
-                sitemap(
+                await sitemap(
                     wrap_in_sitemap(result, level=level + 1),
-                    return_dont_cache_as_is=True,
                 )
                 if result
                 else []
             )
             return ([url] + flatten(child_sitemaps)) if result else [url]
 
-        return flatten(sitemap(wrap_in_sitemap(urls, level=1)))
+        result = await sitemap(wrap_in_sitemap(urls, level=1))
+        return flatten(result)
 
-    def _get_sitemaps_from_robots(self, request_options, urls):
-        visited = set()
+    async def _get_sitemaps_from_robots(self, request_options, urls):
+        visited: set[str] = set()
 
         @request(**request_options)
-        def sitemap(req, url):
+        async def sitemap(req, url):
             nonlocal visited
 
             if url in visited:
                 return []
 
             visited.add(url)
-            content = fetch_content(req, url)
+            content = fix_bad_sitemap_response(await fetch_content(req, url))
 
             if not content:
                 return []
@@ -149,24 +154,30 @@ class Sitemap(_Base):
             )
             if not result:
                 sm_url = clean_sitemap_url(url)
-                content = fetch_content(req, sm_url)
+                content = await fetch_content(req, sm_url)
                 return [sm_url] if content else []
+
             result = apply_filters_maps_sorts_randomize(
                 result,
                 self._filters.get(0, []),
             )
             return result
 
-        return flatten(
-            sitemap(clean_robots_txt_url(url)) if is_empty_path(url) else url
-            for url in urls
-        )
+        result: list[str] = []
 
-    def _get_urls(self, request_options, urls) -> list[SitemapUrl]:
+        for url in urls:
+            if is_empty_path(url):
+                result.extend(await sitemap(clean_robots_txt_url(url)))
+            else:
+                result.append(url)
+
+        return result
+
+    async def _get_urls(self, request_options, urls) -> list[SitemapUrl]:
         visited = set()
 
         @request(**request_options)
-        def sitemap(req, url):
+        async def sitemap(req, url):
             nonlocal visited  # Reference the global visited set
 
             if url in visited:
@@ -174,14 +185,14 @@ class Sitemap(_Base):
 
             visited.add(url)
             print(f"Extracting links from {url}")
-            content = fix_bad_sitemap_response(fetch_content(req, url))
+            content = fix_bad_sitemap_response(await fetch_content(req, url))
 
             links, locs = split_into_links_and_sitemaps(content)
 
             return links
 
         return flatten(
-            sitemap(
+            await sitemap(
                 urls,
             )
         )

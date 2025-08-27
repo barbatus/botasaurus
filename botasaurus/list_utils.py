@@ -7,6 +7,7 @@ def iterflatten(array, depth=-1):
         else:
             yield item
 
+
 def flatten_depth(array, depth=1):
     """
     Recursively flatten `array` up to `depth` times.
@@ -32,6 +33,7 @@ def flatten_depth(array, depth=1):
     .. versionadded:: 4.0.0
     """
     return list(iterflatten(array, depth=depth))
+
 
 def flatten(array):
     """
@@ -59,6 +61,7 @@ def flatten(array):
         Removed ``is_deep`` option. Use :func:`flatten_deep` instead.
     """
     return flatten_depth(array, depth=1)
+
 
 def flatten_deep(array):
     """

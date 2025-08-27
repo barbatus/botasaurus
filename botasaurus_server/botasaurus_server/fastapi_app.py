@@ -249,7 +249,7 @@ async def get_sitemap_links(body: SitemapRequest) -> list[str]:
         sitemaps_second_level = convert_filters(sitemap_filters, 1)
         links_first_level = convert_filters(link_filters, 0)
 
-        sitemap_links = (
+        sitemaps = await (
             Sitemap(
                 domain,
                 cache="REFRESH",
@@ -258,8 +258,9 @@ async def get_sitemap_links(body: SitemapRequest) -> list[str]:
             .filter(*sitemaps_first_level, level=0)
             .filter(*sitemaps_second_level, level=1)
             .sitemaps()
-            .filter(*links_first_level, level=0)
-            .links(since=since, to=to)
+        )
+        sitemap_links = await sitemaps.filter(*links_first_level, level=0).links(
+            since=since, to=to
         )
         result.extend(sitemap_links)
 

@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from dataclasses import dataclass
 from hashlib import sha256
 
 from casefy import titlecase
@@ -57,6 +58,13 @@ def get_scraper_error_message(valid_scraper_names, scraper_name, valid_names_str
     )
 
 
+@dataclass
+class TemporalConfig:
+    url: str
+    namespace: str
+    api_key: str
+
+
 class _Server:
     def __init__(self):
         self.scrapers = {}
@@ -66,6 +74,7 @@ class _Server:
         self.config = None
         self.database_url = None
         self.database_options = None
+        self.temporal_url = None
         self._is_database_initialized = False
 
     def set_database_url(self, database_url=None, database_options=None):
@@ -78,6 +87,9 @@ class _Server:
 
     def set_proxy_url(self, proxy_url: str):
         self.proxy_url = proxy_url
+
+    def set_temporal_config(self, temporal_config: TemporalConfig):
+        self.temporal_config = temporal_config
 
     def get_config(self):
         if not self.config:

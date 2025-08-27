@@ -161,9 +161,7 @@ class TaskHelper:
         return await session.scalar(query)
 
     @staticmethod
-    async def delete_task(
-        session: AsyncSession, task_id: int
-    ):
+    async def delete_task(session: AsyncSession, task_id: int):
         await session.execute(
             delete(Task).where(Task.id == task_id),
         )
@@ -282,16 +280,15 @@ class TaskHelper:
     @staticmethod
     async def update_parent_task_results(session: AsyncSession, parent_id, result):
         from sqlalchemy import text
+
         await session.execute(
             update(Task)
             .where(Task.id == parent_id)
             .values(
                 result_count=Task.result_count + len(result),
-                result=text(
-                    "COALESCE(result, '[]'::json) || :new_result::json"
-                )
+                result=text("COALESCE(result, '[]'::json) || :new_result::json"),
             ),
-            {"new_result": result}
+            {"new_result": result},
         )
         await session.commit()
 

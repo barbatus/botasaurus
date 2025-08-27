@@ -1,3 +1,4 @@
+import asyncio
 import os
 import subprocess
 import sys
@@ -6,7 +7,7 @@ import webbrowser
 from threading import Thread
 from time import sleep
 
-from .app import run_server, run_worker
+from .app import run_server
 from .env import is_vmish
 
 # skip for now, not really big issue user complains and makes thing quite fast
@@ -16,6 +17,7 @@ from .port_kill_adapter import (
     killfrontendport,
 )
 from .server import Server
+from .temporal_worker import run_worker as run_temporal_worker
 
 
 def show_help():
@@ -162,7 +164,7 @@ def run():
             open_browser_in_thread()
             run_frontend(True)
         elif main_arg == "worker":
-            run_worker()
+            asyncio.run(run_temporal_worker())
         elif is_direct_run(sys.argv[1:]):
             print_frontend_run_message()
             if "--force" in sys.argv:

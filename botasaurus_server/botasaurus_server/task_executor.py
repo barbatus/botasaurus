@@ -1,12 +1,12 @@
 import asyncio
 import traceback
 from datetime import datetime
-from typing import Any
+from typing import Any, Callable, Optional
 
 from sqlalchemy import and_, delete, or_, select, update
 
 from .cleaners import clean_data
-from .db_setup import get_async_session, Session
+from .db_setup import Session, get_async_session
 from .models import Task, TaskStatus, remove_duplicates_by_key
 from .retry_on_db_error import retry_on_db_error
 from .server import Server, get_scraper_error_message
@@ -42,7 +42,9 @@ class TaskExecutor:
         return Server.get_rate_limit()[scraper_type]
 
     @retry_on_db_error
-    async def process_tasks(self, task_ids: list[int]):
+    async def process_tasks(
+        self, task_ids: list[int], on_heatbeat: Optional[Callable] = None
+    ):
         tasks_json: list[dict[str, Any]] = []
         async with get_async_session() as session:
             stmt = (
@@ -85,7 +87,10 @@ class TaskExecutor:
                 .where(
                     or_(
                         Task.id.in_(task_ids),
-                        and_(Task.id.in_(parent_ids), Task.started_at.is_(None)),
+                        and_(
+                            Task.id.in_(parent_ids),
+                            Task.started_at.is_(None),
+                        ),
                     ),
                 )
                 .values(
@@ -112,9 +117,11 @@ class TaskExecutor:
 
             await session.commit()
 
-        await asyncio.gather(*[self.run_task(task_json) for task_json in tasks_json])
+        await asyncio.gather(
+            *(self.run_task(task_json, on_heatbeat) for task_json in tasks_json)
+        )
 
-    async def run_task(self, task):
+    async def run_task(self, task, on_heatbeat: Optional[Callable]):
         task_id = task["id"]
         scraper_name = task["scraper_name"]
         parent_task_id = task["parent_task_id"]
@@ -125,7 +132,8 @@ class TaskExecutor:
         exception_log = None
 
         try:
-            result = fn(
+            result = await asyncio.to_thread(
+                fn,
                 task_data,
                 **metadata,
                 parallel=None,
@@ -137,14 +145,17 @@ class TaskExecutor:
                 close_on_crash=True,
                 output=None,
                 create_error_logs=False,
-                return_dont_cache_as_is=True,
+                on_heatbeat=on_heatbeat,
             )
 
             result = clean_data(result)
 
             remove_duplicates_by = Server.get_remove_duplicates_by(scraper_name)
             if remove_duplicates_by:
-                result = remove_duplicates_by_key(result, remove_duplicates_by)
+                result = remove_duplicates_by_key(
+                    result,
+                    remove_duplicates_by,
+                )
 
             await self.mark_task_as_success(
                 task_id,
@@ -179,6 +190,7 @@ class TaskExecutor:
                 result,
             )
 
+    @retry_on_db_error
     async def complete_parent_task_if_possible(
         self, parent_id, remove_duplicates_by, result
     ):
@@ -190,11 +202,19 @@ class TaskExecutor:
             )
 
             if parent_task:
-                await TaskHelper.update_parent_task_results(session, parent_id, result)
-                is_done = await TaskHelper.are_all_child_task_done(session, parent_id)
+                await TaskHelper.update_parent_task_results(
+                    session,
+                    parent_id,
+                    result,
+                )
+                is_done = await TaskHelper.are_all_child_task_done(
+                    session,
+                    parent_id,
+                )
                 if is_done:
                     failed_children_count = await TaskHelper.get_failed_children_count(
-                        session, parent_id
+                        session,
+                        parent_id,
                     )
 
                     status = (

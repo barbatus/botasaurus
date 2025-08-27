@@ -5,7 +5,6 @@ from typing import Any, Callable, List, Optional, Union
 from botasaurus_driver.driver import Driver
 
 from botasaurus.decorators_common import (
-    IS_PRODUCTION,
     AsyncQueueResult,
     AsyncResult,
     evaluate_proxy,
@@ -71,7 +70,7 @@ def browser(
     create_driver: Optional[Callable] = None,
     host: Optional[str] = None,
     port: Optional[int] = None,
-    browser_executable_path: Optional[str] = None,
+    on_heatbeat: Optional[Callable] = None,
 ) -> Callable:
     def decorator_browser(func: Callable) -> Callable:
         if not hasattr(func, "_scraper_type"):
@@ -113,7 +112,8 @@ def browser(
                 enable_xvfb_virtual_display, \
                 host, \
                 port, \
-                remove_default_browser_check_argument
+                remove_default_browser_check_argument, \
+                on_heatbeat
 
             parallel = kwargs.get("parallel", parallel)
             data = kwargs.get("data", data)
@@ -156,6 +156,7 @@ def browser(
                 "remove_default_browser_check_argument",
                 remove_default_browser_check_argument,
             )
+            on_heatbeat = kwargs.get("on_heatbeat", on_heatbeat)
 
             fn_name = func.__name__
             last_error: Exception = None
@@ -171,6 +172,9 @@ def browser(
 
             def run_task(data, retry_attempt, retry_driver=None) -> Any:
                 nonlocal last_error
+
+                if on_heatbeat:
+                    on_heatbeat()
 
                 evaluated_window_size = (
                     window_size(data) if callable(window_size) else window_size
@@ -284,16 +288,6 @@ def browser(
                     print("Task failed for input:", data)
                     if create_error_logs:
                         save_error_logs(format_exc(), driver)
-
-                    if not close_on_crash:
-                        if not IS_PRODUCTION:
-                            if headless:
-                                driver.open_in_devtools()
-                            if raise_exception:
-                                print_exc()
-                            driver.prompt(
-                                "We've paused the browser to help you debug. Press 'Enter' to close."
-                            )
 
                     close_driver(driver)
 

@@ -16,7 +16,7 @@ def _find_ip(attempts=5, proxy=None, is_retry = False) -> str:
         url = "https://api.ipify.org"
     else:
         url = "https://checkip.amazonaws.com/"
-    
+
     proxies = _create_proxy_dict(proxy) if proxy else None
 
     try:
@@ -115,7 +115,7 @@ class IPUtils:
     def get_ip(proxy=None):
         """
         Finds the IP address of the current connection.
-        
+
         Example: 47.31.226.180
         """
         ip = _find_ip(proxy=proxy)
@@ -128,7 +128,7 @@ class IPUtils:
     def get_ip_info(proxy=None):
         """
         Finds details about the current IP address.
-        
+
         Example:
         {
             "ip": "47.31.226.180",

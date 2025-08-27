@@ -28,6 +28,7 @@ from .server import Server
 from .sorts import apply_sorts
 from .task_helper import TaskHelper
 from .tasks import execute_task
+from .temporal_client import run_scrape_workflow
 from .validation import (
     create_task_not_found_error,
     is_list_of_integers,
@@ -268,14 +269,14 @@ async def execute_async_task(json_data):
 
 async def execute_async_tasks(json_data):
     validated_data_items = [validate_task_request(item) for item in json_data]
-    result = [
+    tasks = [
         await create_async_task(validated_data_item)
         for validated_data_item in validated_data_items
     ]
-    for task in result:
-        if task["status"] != TaskStatus.COMPLETED:
-            execute_task.delay(task["id"])
-    return result
+    await run_scrape_workflow(
+        [task["id"] for task in tasks if task["status"] != TaskStatus.COMPLETED]
+    )
+    return tasks
 
 
 async def create_tasks(scraper, data, metadata, is_sync):

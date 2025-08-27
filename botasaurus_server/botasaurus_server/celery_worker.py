@@ -36,3 +36,18 @@ celery_app.conf.update(
         "retry_on_timeout": True,
     },
 )
+
+
+def run_celery_worker():
+    from celery.apps.worker import Worker
+
+    from .celery_worker import celery_app
+
+    worker_instance = Worker(
+        app=celery_app,
+        loglevel="INFO",
+        traceback=True,
+        pool="prefork",
+        autoscale="5,3",
+    )
+    worker_instance.start()

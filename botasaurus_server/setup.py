@@ -16,6 +16,7 @@ install_requires = [
     "asyncpg",
     "celery[redis]",
     "psycopg2-binary",
+    "temporalio",
 ]
 
 extras_require = {}
