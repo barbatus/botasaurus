@@ -135,34 +135,23 @@ def extract_sitemaps(content) -> list[SitemapUrl]:
 def split_into_links_and_sitemaps(content) -> tuple[list[SitemapUrl], list[SitemapUrl]]:
     root = BeautifulSoup(content, "lxml-xml")
 
-    links: list[SitemapUrl] = []
-    for url_entry in root.select("url"):
-        loc = url_entry.select_one("loc")
-        lastmod = url_entry.select_one("lastmod")
-        if loc is not None:
-            links.append(
-                {
-                    "loc": loc.text.strip(),
-                    "lastmod": datetime.fromisoformat(lastmod.text.strip())
-                    if lastmod
-                    else None,
-                }
-            )
-    locs: list[SitemapUrl] = []
-    for sm in root.select("sitemap"):
-        loc = sm.select_one("loc")
-        lastmod = sm.select_one("lastmod")
-        if loc is not None:
-            locs.append(
-                {
-                    "loc": loc.text.strip(),
-                    "lastmod": datetime.fromisoformat(lastmod.text.strip())
-                    if lastmod
-                    else None,
-                }
-            )
+    def parse_links(elem_name: str):
+        links: list[SitemapUrl] = []
+        for entry in root.select(elem_name):
+            loc = entry.select_one("loc")
+            lastmod = entry.select_one("lastmod")
+            if loc is not None:
+                links.append(
+                    {
+                        "loc": loc.text.strip(),
+                        "lastmod": datetime.fromisoformat(lastmod.text.strip())
+                        if lastmod
+                        else None,
+                    }
+                )
+        return links
 
-    return links, locs
+    return parse_links("url"), parse_links("sitemap")
 
 
 def clean_robots_txt_url(url):
