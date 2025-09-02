@@ -14,7 +14,7 @@ async def get_temporal_client():
         Server.temporal_config.url,
         api_key=Server.temporal_config.api_key,
         namespace=Server.temporal_config.namespace,
-        tls=True,
+        tls=Server.temporal_config.tls,
     )
     return client
 

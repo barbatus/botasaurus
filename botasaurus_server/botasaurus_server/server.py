@@ -63,6 +63,7 @@ class TemporalConfig:
     url: str
     namespace: str
     api_key: str
+    tls: bool = True
 
 
 class _Server:
@@ -174,20 +175,6 @@ class _Server:
         views=[],
         remove_duplicates_by=None,
     ):
-        if not hasattr(scraper_function, "_scraper_type"):
-            raise ValueError(
-                "The function must be a scraping function decorated with either @browser, @request or @task."
-            )
-
-        if scraper_function._scraper_type not in [
-            ScraperType.REQUEST,
-            ScraperType.BROWSER,
-            ScraperType.TASK,
-        ]:
-            raise ValueError(
-                f"Invalid scraper type: {scraper_function._scraper_type}. Must be 'browser', 'request' or 'task'."
-            )
-
         if not isinstance(filters, list):
             filters = [filters]
 
@@ -250,7 +237,7 @@ class _Server:
             "input_js": input_js,
             "function": scraper_function,
             "scraper_name": scraper_function_name,
-            "scraper_type": scraper_function._scraper_type,
+            "scraper_type": ScraperType.BROWSER,
             "get_task_name": get_task_name,
             "filters": filters,
             "sorts": sorts,
